@@ -26,3 +26,6 @@ stats.html
 *.sw?
 
 *.tsbuildinfo
+
+# Local agent plans
+/docs/plans/

@@ -1,46 +1,44 @@
 # Security
 
-Terax runs shells, reads/writes files, and talks to AI providers, so security bugs matter. If you find one, please tell us before posting it publicly.
+Terax runs shells, reads and writes files, launches language servers, and interprets terminal output. If you find a security issue, report it privately before posting publicly.
 
 ## Reporting
 
-Email **security@terax.app**. Include:
+Email **security@terax.app** with:
 
-- What the issue is and what it lets an attacker do
-- Steps to reproduce (a small PoC is great)
-- Version, OS, arch
+- What the issue is and what it allows
+- Reproduction steps or a small proof of concept
+- Version, operating system, and architecture
 
-We'll get back to you within a few days. Once it's fixed, we'll credit you in the release notes - unless you'd rather stay anonymous.
-
-Please **don't** open a public GitHub issue for security reports.
+Please do not open a public GitHub issue for security reports.
 
 ## Supported versions
 
-Until `1.0.0`, only the latest minor gets security fixes. See the current version in `package.json` or on the [Releases page](https://github.com/crynta/terax-ai/releases). 
+Until `1.0.0`, only the latest minor release receives security fixes. See `package.json` or the Releases page for the current version.
 
-## What's in scope
+## In scope
 
-- The Rust backend in `src-tauri/` (PTY, FS, IPC, plugins)
-- The frontend in `src/` - anywhere untrusted input lands (terminal output, file content, AI tool results, credentials)
-- Release artifacts on GitHub and `terax.app`
-- The auto-updater
+- Rust backend behavior in `src-tauri/`, including PTY, filesystem, process, IPC, and plugin boundaries
+- Frontend handling of untrusted terminal output, paths, and file content
+- Workspace authorization and coding-agent OSC hook processing
+- Release artifacts and the auto-updater
 
-## What's not
+## Out of scope
 
-- Bugs in upstream deps (Tauri, xterm.js, CodeMirror, AI SDKs…) - report those upstream. We'll ship the fix once it's released.
-- Anything that needs an already-compromised machine or a local attacker with shell access
-- Older versions (`< 0.5`)
+- Vulnerabilities in upstream dependencies, which should be reported upstream first
+- Issues requiring an already compromised machine or local shell access
+- Unsupported old releases
 
-## What we do to keep things safe
+## Security controls
 
-- **API keys** live in the OS keychain via `keyring` - not on disk, not in `localStorage`, not in logs.
-- **No telemetry.** Terax only talks to the network when you ask it to (AI requests, update checks, web preview).
-- **AI tool approval.** File writes and shell commands from the agent need your OK before they run.
-- **No Node in the renderer.** The frontend only reaches the host through the allow-listed Tauri commands.
-- **Signed releases.** Updates are verified before they're applied.
+- The webview has no Node.js access and reaches the host only through registered Tauri commands.
+- Process cwd values are checked against the workspace authorization registry.
+- One-shot formatter output is capped and execution is timed out.
+- PTY and language-server child processes use platform-specific lifecycle cleanup.
+- Coding-agent status accepts recognized OSC markers rather than matching raw terminal text.
+- Updates are verified before installation.
+- No telemetry or user account is required.
 
-## What we can't promise
+## Limitations
 
-- Terax runs whatever you (or the agent) tell it to run, with your permissions. That's kind of the point of a terminal.
-- AI providers see whatever you send them. Read their retention policies.
-- Local LLM endpoints (LM Studio, OpenAI-compatible) are trusted at the network level - only point Terax at servers you control.
+Terax is a terminal and runs commands with the current user's permissions. Review commands and scripts before executing them, especially in untrusted repositories.

@@ -90,8 +90,8 @@ reviews:
         growth, work done while the feature is idle.
         (4) Bundle size and dependencies: flag every new dependency and whether it is
         justified, prefer std/platform or existing deps; the bundle stays ~7-8MB.
-        (5) Security: validation at boundaries (IPC, fs, network, AI tool surface),
-        injection, path traversal, secret exposure.
+        (5) Security: validation at IPC, filesystem, process, workspace, preview,
+        and terminal parsing boundaries; injection and path traversal.
         (6) Correctness: edge cases, error and failure handling, race conditions,
         rollback on partial failure.
         (7) UX: loading/empty/error/large-data states, cross-platform parity, polish.

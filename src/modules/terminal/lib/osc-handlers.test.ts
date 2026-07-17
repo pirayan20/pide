@@ -26,7 +26,9 @@ function makeFakeTerm() {
         return { dispose: () => handlers.delete(code) };
       },
     },
-    registerMarker: vi.fn().mockReturnValue({ isDisposed: false, dispose: vi.fn() }),
+    registerMarker: vi
+      .fn()
+      .mockReturnValue({ isDisposed: false, dispose: vi.fn() }),
   } as unknown as Terminal;
   return { term, handlers };
 }
@@ -72,7 +74,7 @@ describe("OSC 7 cwd handler — gated by OSC 133 in-command state", () => {
     registerCwdHandler(term, onCwd, state);
 
     // Simulate: user runs `ssh attacker.host`, which prints attacker bytes
-    // including an OSC 7 trying to silently move the AI's cwd into /etc.
+    // including an OSC 7 trying to silently move the tracked cwd into /etc.
     handlers.get(133)?.("A"); // prompt drawn
     handlers.get(133)?.("B"); // command begins (user hit enter)
     handlers.get(7)?.("file://host/etc"); // attacker injection

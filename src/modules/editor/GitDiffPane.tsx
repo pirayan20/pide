@@ -1,24 +1,18 @@
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
+import { native } from "@/lib/native";
 import { unifiedMergeView } from "@codemirror/merge";
 import { EditorState, type Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  commitDiffKey,
-  fetchCommitDiff,
-  fetchWorkingDiff,
-  getCachedDiff,
-  workingDiffKey,
-} from "./lib/diffCache";
-import {
   buildSharedExtensions,
   DEFAULT_INDENT,
   languageCompartment,
 } from "./lib/extensions";
-import { resolveLanguage, resolveLanguageSync } from "./lib/languageResolver";
+import { resolveLanguage } from "./lib/languageResolver";
 import { useEditorThemeExt } from "./lib/useEditorThemeExt";
 
 type WorkingSource = {
@@ -117,52 +111,24 @@ type LoadState =
     }
   | { kind: "error"; message: string };
 
-function cacheKey(source: WorkingSource | CommitSource): string {
-  return source.kind === "working"
-    ? workingDiffKey(source.repoRoot, source.path, source.mode)
-    : commitDiffKey(source.repoRoot, source.sha, source.path);
-}
-
-function loadStateFromCache(source: WorkingSource | CommitSource): LoadState {
-  const hit = getCachedDiff(cacheKey(source));
-  if (!hit) return { kind: "idle" };
-  return {
-    kind: "loaded",
-    originalContent: hit.originalContent,
-    modifiedContent: hit.modifiedContent,
-    isBinary: hit.isBinary,
-    fallbackPatch: hit.fallbackPatch,
-    langExt: resolveLanguageSync(source.path)?.ext ?? null,
-  };
-}
-
 export function GitDiffPane({ source, chipLabel, active }: Props) {
   const cmRef = useRef<ReactCodeMirrorRef>(null);
   const themeExt = useEditorThemeExt();
-  const [state, setState] = useState<LoadState>(() =>
-    active ? loadStateFromCache(source) : { kind: "idle" },
-  );
-
-  const key = cacheKey(source);
+  const [state, setState] = useState<LoadState>({ kind: "idle" });
 
   useEffect(() => {
     if (!active) return;
-    const cached = loadStateFromCache(source);
-    if (cached.kind === "loaded") {
-      setState(cached);
-      return;
-    }
     let cancelled = false;
     setState({ kind: "loading" });
     const promise =
       source.kind === "working"
-        ? fetchWorkingDiff(
+        ? native.gitDiffContent(
             source.repoRoot,
             source.path,
-            source.mode,
+            source.mode === "+",
             source.originalPath,
           )
-        : fetchCommitDiff(
+        : native.gitCommitFileDiff(
             source.repoRoot,
             source.sha,
             source.path,
@@ -193,7 +159,7 @@ export function GitDiffPane({ source, chipLabel, active }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [active, key, source]);
+  }, [active, source]);
 
   const path = source.path;
   const repoRoot = source.repoRoot;
@@ -236,9 +202,7 @@ export function GitDiffPane({ source, chipLabel, active }: Props) {
     let cancelled = false;
     resolveLanguage(path).then((res) => {
       if (cancelled || !res) return;
-      setState((s) =>
-        s.kind === "loaded" ? { ...s, langExt: res.ext } : s,
-      );
+      setState((s) => (s.kind === "loaded" ? { ...s, langExt: res.ext } : s));
     });
     return () => {
       cancelled = true;

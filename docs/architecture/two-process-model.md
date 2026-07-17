@@ -6,10 +6,10 @@ This guide elaborates on `TERAX.md`. If anything here conflicts with `TERAX.md`,
 
 Terax is two processes: the Rust backend (`src-tauri/`) and the webview frontend (`src/`).
 
-- **Rust owns all OS access**: PTY, file system, git, shell spawn, network, secrets, workspace authorization.
+- **Rust owns all OS access**: PTY, file system, Git, shell spawn, workspace authorization, and language-server processes.
 - **The webview never touches the FS, processes, or shells directly**. Every host operation goes through an `invoke()` call to a command registered in `src-tauri/src/lib.rs`.
 
-This boundary is the root of the security model. Untrusted input (terminal escape sequences, file content, AI tool results) is parsed and validated in Rust or in carefully scoped frontend code, never executed by the renderer.
+This boundary is the root of the security model. Untrusted terminal escape sequences, paths, file content, and process arguments are parsed and validated in Rust or carefully scoped frontend code, never executed directly by the renderer.
 
 ## Adding a new IPC command
 
@@ -17,7 +17,7 @@ This boundary is the root of the security model. Untrusted input (terminal escap
 2. Register it in `src-tauri/src/lib.rs` inside the `tauri::generate_handler![...]` block (`src-tauri/src/lib.rs:191`).
 3. If the command uses a Tauri plugin API (window, clipboard, dialog, etc.), add the plugin permission to `src-tauri/capabilities/default.json`.
 4. Add a typed frontend wrapper in the matching `src/modules/<area>/lib/` directory and call it through Tauri's `invoke()` API.
-5. If the command touches the file system, network, or shell, it must go through the existing guards (`security.ts` deny-list, workspace authorization registry, SSRF guard, AI tool approval).
+5. If the command touches the file system or spawns a process, validate its paths through the workspace authorization registry.
 
 Custom commands do not need to be listed one-by-one in `default.json`; the capability covers the window. Plugin permissions do.
 
@@ -88,25 +88,12 @@ All git commands are gated through the workspace authorization registry.
 
 ### Shell (`src-tauri/src/modules/shell/`)
 
-Three distinct surfaces:
-
-- `shell_run_command` - one-shot subshell exec for AI tools
-- `shell_session_open` / `shell_session_run` / `shell_session_close` - persistent agent shell with state across calls
-- `shell_bg_spawn` / `shell_bg_logs` / `shell_bg_kill` / `shell_bg_list` - long-running background processes with bounded ring-buffer log capture
+- `shell_run_command` - bounded one-shot shell execution for external editor formatters
 
 ### Workspace (`src-tauri/src/modules/workspace.rs`)
 
-- `workspace_authorize` / `workspace_current_dir` - the spawn/git/AI cwd authorization registry
+- `workspace_authorize` / `workspace_current_dir` - the process and Git cwd authorization registry
 - `wsl_list_distros` / `wsl_default_distro` / `wsl_home` - WSL bridge
-
-### Network (`src-tauri/src/modules/net.rs`)
-
-- `ai_http_request` / `ai_http_stream` - AI HTTP proxy with SSRF guard
-- `lm_ping` - local-model ping
-
-### Secrets (`src-tauri/src/modules/secrets.rs`)
-
-- `secrets_get` / `secrets_set` / `secrets_delete` / `secrets_get_all` - OS keychain access, service `terax-ai`
 
 ### Agent hooks (`src-tauri/src/modules/agent.rs`)
 
@@ -123,8 +110,8 @@ Three distinct surfaces:
 
 ## Invariants
 
-- The webview must not spawn processes, read files, or make network calls except through the commands above.
-- New commands must be registered in `lib.rs` and guarded at the boundary (workspace auth, deny-list, SSRF, approval flow).
+- The webview must not spawn processes or read files except through the commands above.
+- New commands must be registered in `lib.rs` and guarded through workspace authorization where they accept a cwd or path.
 - Plugin permissions must be added to `src-tauri/capabilities/default.json` if the command uses a plugin API.
 
 ## See also

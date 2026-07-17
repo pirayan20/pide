@@ -66,7 +66,6 @@ For anything beyond a small fix, **discussion is required before opening a PR**.
 - Performance rewrites
 - Architectural changes
 - Anything touching many files or systems
-- New AI providers
 
 Pull requests with significant unsolicited changes will be closed without detailed review. This isn't meant to discourage contribution. It ensures alignment before significant work goes in.
 
@@ -82,10 +81,10 @@ Terax positions itself as **lightweight, fast, production-grade**. Every PR is r
 - `cargo clippy --all-targets --locked -- -D warnings` clean
 - `cargo nextest run --locked` clean (or `cargo test --locked`)
 - `cargo fmt` applied before pushing
-- No perf regressions in known hot paths: terminal renderer, PTY stream, AI streaming, source control, file explorer
+- No perf regressions in known hot paths: terminal renderer, PTY stream, source control, file explorer
 - No new heavy dependencies (>50KB gzip in client bundle, >5MB compiled on Rust side) without justification
 - Platform parity preserved (macOS / Linux / Windows / WSL still work)
-- Security review for changes to AI tool surface, file system access, network paths, IPC commands
+- Security review for changes to filesystem access, process spawning, workspace authorization, terminal parsing, and IPC commands
 
 If you're not sure how to measure perf or what counts as a hot path, ask in Discord or an issue. Better to confirm than get bounced.
 
@@ -96,10 +95,10 @@ The most common way a PR breaks Terax is a **local fix with global blast radius*
 So if your change touches behavior in any of these load-bearing paths, the PR must add or extend a test that locks the invariant you're relying on:
 
 - **Shell/terminal spawn**: what shell launches, with which cwd, env, and login flags. A "fix" here can stop terminals from starting entirely.
-- **Workspace authorization**: which directories spawns, git, and AI tools may operate in. Both the allow and the deny side.
+- **Workspace authorization**: which directories process and Git commands may operate in. Both the allow and the deny side.
 - **Git command layer**: repo-root resolution, pathspec/argument guards, status parsing.
 - **Filesystem mutation**: atomic writes, symlink handling, no-data-loss on partial failure.
-- **IPC command surface and AI tool surface**: anything the webview or the agent can invoke.
+- **IPC command surface**: anything the webview can invoke.
 - **Pure logic with wide reach**: cwd inheritance, tab/split tree transforms, OSC/prompt parsing, the command guard.
 
 The bar for the test is real coverage of the contract, not a placeholder. Test the case that would actually break: the edge, the deny path, the "what happens one level above home". If you can't see how to test it, ask in Discord before opening the PR. That conversation is usually shorter than the revert.
@@ -192,21 +191,18 @@ src-tauri/                  Rust backend
       git/                  Source control commands
       history/              Shell history integration
       mod.rs                Module exports
-      net.rs                AI HTTP proxy with SSRF guard
       proc.rs               Process utilities
-      pty/                  Terminal sessions, shell integration, DA filter
-      secrets.rs            OS keychain access
-      shell/                Oneshot/session/background shell commands
+      pty/                  Terminal sessions, shell integration, agent detection
+      shell/                Bounded one-shot formatter commands
       workspace.rs          WSL bridge, workspace env, authorization registry
 
 src/                        React frontend
   App.tsx                   Top-level coordinator
-  components/               shadcn/ui + AI Elements
+  components/               Shared UI components
   modules/
-    agents/                 Agent notifications and management
-    ai/                     Agents, sessions, tools, providers, composer
+    agents/                 Coding-agent CLI status and notifications
     command-palette/        Modal command palette and actions
-    editor/                 CodeMirror stack, AI autocomplete
+    editor/                 CodeMirror editor and Git diff stack
     explorer/               File tree
     git-history/            Git graph and history pane
     header/                 Top bar, search, window controls
@@ -244,9 +240,6 @@ A: Focus on your stated goal. Submit cleanup as a separate PR after discussion i
 
 **Q: How long does review take?**
 A: Depends. Small bug fix or docs: usually within a few days. Larger feature: maybe a week or two. Pre-discussed work moves faster.
-
-**Q: Why did my PR for a new AI provider get closed?**
-A: Most provider requests are now covered by the `openai-compatible` provider (point it at any OpenAI-compatible base URL) or OpenRouter. New built-in providers must justify unique value beyond what those cover.
 
 **Q: My PR conflicts after main moved. Should I rebase?**
 A: If the change is still relevant and reasonably small, yes. If it's a large stale PR, expect it to be closed with an offer to reopen after rebase. Rotting velocity is real, not personal.

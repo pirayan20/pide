@@ -203,7 +203,7 @@ const VALID_FOR = /^[\w./+-]*$/;
 // separator (; & | newline ( { ), so the 2nd command in `a; b` completes too.
 const SEGMENT_START = /(^|[\n;&|(){}])\s*$/;
 
-function commandOptions(
+export function commandOptions(
   prefix: string,
   getCommands: () => string[],
 ): Completion[] {

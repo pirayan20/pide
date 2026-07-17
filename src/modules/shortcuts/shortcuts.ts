@@ -39,16 +39,11 @@ export type ShortcutId =
   | "view.zoomOut"
   | "view.zoomReset"
   | "view.zenMode"
-  | "ai.toggle"
-  | "ai.toggleMini"
-  | "ai.askSelection"
   | "agent.focusAttention"
   | "settings.open"
   | "sidebar.toggle"
   | "editor.undo"
-  | "editor.redo"
-  | "editor.aiComplete"
-  | "editor.codeComplete";
+  | "editor.redo";
 
 export type ShortcutGroup =
   | "General"
@@ -57,7 +52,7 @@ export type ShortcutGroup =
   | "Panes"
   | "Terminal"
   | "Search"
-  | "AI"
+  | "Agents"
   | "View"
   | "Editor";
 
@@ -198,7 +193,7 @@ export const SHORTCUTS: Shortcut[] = [
   },
   {
     id: "terminal.toggleInput",
-    label: "Toggle Shell / AI input",
+    label: "Focus shell input",
     group: "Terminal",
     defaultBindings: [{ [MOD_PROP]: true, key: "u" }],
   },
@@ -267,27 +262,9 @@ export const SHORTCUTS: Shortcut[] = [
     defaultBindings: [{ [MOD_PROP]: true, key: "f" }],
   },
   {
-    id: "ai.toggle",
-    label: "Toggle AI agent",
-    group: "AI",
-    defaultBindings: [{ [MOD_PROP]: true, key: "i" }],
-  },
-  {
-    id: "ai.toggleMini",
-    label: "Toggle AI chat window",
-    group: "AI",
-    defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "i" }],
-  },
-  {
-    id: "ai.askSelection",
-    label: "Ask AI about selection",
-    group: "AI",
-    defaultBindings: [{ [MOD_PROP]: true, key: "j" }],
-  },
-  {
     id: "agent.focusAttention",
     label: "Jump to agent needing attention",
-    group: "AI",
+    group: "Agents",
     defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "a" }],
   },
   {
@@ -357,18 +334,6 @@ export const SHORTCUTS: Shortcut[] = [
     group: "Editor",
     defaultBindings: [{ [MOD_PROP]: true, key: "y" }],
   },
-  {
-    id: "editor.aiComplete",
-    label: "Trigger AI completion",
-    group: "Editor",
-    defaultBindings: [{ alt: true, key: "\\" }],
-  },
-  {
-    id: "editor.codeComplete",
-    label: "Trigger code completion",
-    group: "Editor",
-    defaultBindings: [{ ctrl: true, key: " " }],
-  },
 ];
 
 export const SHORTCUT_GROUPS: ShortcutGroup[] = [
@@ -378,7 +343,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
   "Terminal",
   "View",
   "Search",
-  "AI",
+  "Agents",
   "Editor",
 ];
 
@@ -411,7 +376,7 @@ function keyFromCode(code: string): string | null {
 export function matchBinding(
   e: KeyboardEvent,
   binding: KeyBinding,
-  id?: ShortcutId
+  id?: ShortcutId,
 ): boolean {
   const eventKey = e.key.toLowerCase();
   const bindingKey = binding.key.toLowerCase();

@@ -8,7 +8,7 @@
     "src/styles/globals.css"
   ],
   "project": ["src/**/*.{ts,tsx}"],
-  "ignore": ["src/components/ui/**", "src/components/ai-elements/**"],
+  "ignore": ["src/components/ui/**"],
   "ignoreDependencies": [
     "@size-limit/file",
     "@tauri-apps/plugin-log",
@@ -17,6 +17,7 @@
     "tw-animate-css",
     "shadcn",
     "@fontsource-variable/inter",
+    "@fontsource/jetbrains-mono",
     "@codemirror/autocomplete",
     "@uiw/codemirror-themes"
   ]

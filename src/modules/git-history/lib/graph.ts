@@ -15,7 +15,7 @@
 // Lane colors are stable per slot index. This keeps the rail readable when
 // you load more pages, since lane indices don't shift retroactively.
 
-import type { GitLogEntry } from "@/modules/ai/lib/native";
+import type { GitLogEntry } from "@/lib/native";
 
 export type LaneColor = string;
 
@@ -165,7 +165,10 @@ export function layoutGraph(
     // bottom from its position. Skip the branch lanes we already recorded.
     const branchTargets = new Set(
       bottomEdges
-        .filter((e): e is Extract<GraphEdge, { kind: "branch" }> => e.kind === "branch")
+        .filter(
+          (e): e is Extract<GraphEdge, { kind: "branch" }> =>
+            e.kind === "branch",
+        )
         .map((e) => e.toLane),
     );
     for (let i = 0; i < lanes.length; i++) {
@@ -181,11 +184,7 @@ export function layoutGraph(
       lanes.length = trimmed.length;
     }
 
-    const widestLane = Math.max(
-      lanesBefore.length,
-      lanes.length,
-      lane + 1,
-    );
+    const widestLane = Math.max(lanesBefore.length, lanes.length, lane + 1);
 
     rows.push({
       sha: commit.sha,

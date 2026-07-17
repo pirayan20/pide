@@ -34,7 +34,7 @@ describe("fuzzyScore", () => {
 
 describe("fuzzyBest", () => {
   it("takes the highest-scoring candidate", () => {
-    const score = fuzzyBest("ai", ["close tab", "toggle ai agent"]);
+    const score = fuzzyBest("ts", ["close tab", "toggle sidebar"]);
     expect(score).not.toBeNull();
   });
 
