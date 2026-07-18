@@ -11,6 +11,7 @@ import { IS_WINDOWS } from "@/lib/platform";
 import { quoteShellArg } from "@/lib/shellQuote";
 import { useZoom } from "@/lib/useZoom";
 import { previewRendererFor } from "@/lib/utils";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import {
   AgentNotificationsBridge,
   nextAttentionTarget,
@@ -650,6 +651,14 @@ export default function App() {
       return id;
     },
     [newPreviewTab],
+  );
+
+  // Open a local HTML file in the browser preview tab via the asset protocol.
+  const openHtmlPreview = useCallback(
+    (path: string) => {
+      openPreviewTab(convertFileSrc(path));
+    },
+    [openPreviewTab],
   );
 
   const splitActivePaneInActiveTab = useCallback(
@@ -1406,6 +1415,7 @@ export default function App() {
                       onOpenCommitFile={openCommitFileDiffTab}
                       onGitHistorySearchHandle={setGitHistoryHandle}
                       onSetRenderView={setRenderView}
+                      onOpenPreview={openHtmlPreview}
                     />
                   </div>
 

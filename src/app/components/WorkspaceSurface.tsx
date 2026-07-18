@@ -30,6 +30,7 @@ type Props = {
   onOpenCommitFile: GitHistoryStackProps["onOpenCommitFile"];
   onGitHistorySearchHandle: GitHistoryStackProps["onSearchHandle"];
   onSetRenderView: EditorStackProps["onSetRenderView"];
+  onOpenPreview: EditorStackProps["onOpenPreview"];
 };
 
 /**
@@ -55,6 +56,7 @@ export function WorkspaceSurface({
   onOpenCommitFile,
   onGitHistorySearchHandle,
   onSetRenderView,
+  onOpenPreview,
 }: Props) {
   const kind = activeTab?.kind;
   const isTerminalTab = kind === "terminal";
@@ -97,6 +99,7 @@ export function WorkspaceSurface({
           onDirtyChange={onEditorDirtyChange}
           onCloseTab={onEditorCloseTab}
           onSetRenderView={onSetRenderView}
+          onOpenPreview={onOpenPreview}
         />
       </div>
       <div
