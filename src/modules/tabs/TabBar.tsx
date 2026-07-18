@@ -16,12 +16,20 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtShortcut, MOD_KEY, SHIFT_KEY } from "@/lib/platform";
 import { cn } from "@/lib/utils";
+import { AgentIcon } from "@/modules/agents/lib/agentIcon";
 import {
   ALL_LANGUAGES,
   EXPOSED_LANGUAGES,
 } from "@/modules/editor/lib/languageDefinitions";
 import { resolveDisplayName } from "@/modules/editor/lib/languageResolver";
 import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
+import {
+  leafIds,
+  pickTabAgent,
+  ptyIdForLeaf,
+  useAgentActivityStore,
+  useLeafTitleStore,
+} from "@/modules/terminal";
 import {
   Cancel01Icon,
   Clock01Icon,
@@ -44,7 +52,7 @@ import {
   useState,
 } from "react";
 import { AgentTabBadge } from "./AgentTabBadge";
-import { labelFor } from "./lib/tabLabel";
+import { labelFor, type TabAgentContext } from "./lib/tabLabel";
 import type { EditorTab, Tab } from "./lib/useTabs";
 
 type Props = {
@@ -446,7 +454,7 @@ export function TabBar({
                     {/* Preview tabs use italic to signal the transient state,
                         matching the visual convention from VSCode. */}
                     <span className={cn("truncate", isPreview && "italic")}>
-                      {labelFor(t)}
+                      <TabLabel tab={t} />
                     </span>
                     {t.kind === "editor" && t.dirty ? (
                       <span
@@ -621,7 +629,32 @@ function DropIndicator() {
   );
 }
 
+function useTabAgentContext(tab: Tab): TabAgentContext | null {
+  const phases = useAgentActivityStore((s) => s.phases);
+  const agents = useAgentActivityStore((s) => s.agents);
+  const titles = useLeafTitleStore((s) => s.titles);
+  if (tab.kind !== "terminal" || tab.private) return null;
+  const pairs: Array<readonly [number, number]> = [];
+  for (const leaf of leafIds(tab.paneTree)) {
+    const ptyId = ptyIdForLeaf(leaf);
+    if (ptyId !== null) pairs.push([leaf, ptyId] as const);
+  }
+  const picked = pickTabAgent(phases, agents, pairs);
+  return picked
+    ? { name: picked.agent, oscTitle: titles[picked.leafId] ?? null }
+    : null;
+}
+
+function TabLabel({ tab }: { tab: Tab }) {
+  const agent = useTabAgentContext(tab);
+  return <>{labelFor(tab, agent)}</>;
+}
+
 export function TabIcon({ tab }: { tab: Tab }) {
+  const agent = useTabAgentContext(tab);
+  if (agent && tab.kind === "terminal") {
+    return <AgentIcon agent={agent.name} size={14} className="shrink-0" />;
+  }
   if (tab.kind === "editor" || tab.kind === "markdown") {
     const url =
       tab.kind === "editor" && tab.overrideLanguage
