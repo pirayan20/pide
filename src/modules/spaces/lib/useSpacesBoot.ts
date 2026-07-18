@@ -78,11 +78,15 @@ export function useSpacesBoot({
           launchRoot: launchCwd,
         });
 
+        // Idempotent and independent of the boot plan: must run on every path
+        // (incl. restore) or usePreferencesStore never hydrates/subscribes, so
+        // live pref writes (LSP activation, etc.) never reach the main window.
+        await usePreferencesStore
+          .getState()
+          .init()
+          .catch(() => {});
+
         if (bootPlan.kind !== "restore") {
-          await usePreferencesStore
-            .getState()
-            .init()
-            .catch(() => {});
           await resetHierarchy();
           const now = Date.now();
           const space: SpaceMeta = {
