@@ -209,6 +209,13 @@ html[data-chrome="borderless"] #settings-root {
   height: 0 !important;
   pointer-events: none !important;
 }
+/*
+ * The overviewRuler width is set to 1px only so FitAddon does not reserve
+ * its 14px scrollbar fallback; the ruler itself stays hidden.
+ */
+.xterm .xterm-decoration-overview-ruler {
+  display: none !important;
+}
 .xterm .xterm-viewport,
 .xterm-viewport {
   scrollbar-width: none !important;

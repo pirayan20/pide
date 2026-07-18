@@ -184,6 +184,9 @@ function termOptions() {
     cursorStyle: "bar" as const,
     cursorInactiveStyle: "outline" as const,
     scrollback: prefs.terminalScrollback,
+    // FitAddon reserves options.overviewRuler.width (fallback 14px) for a
+    // scrollbar that globals.css hides entirely; 1px reclaims the dead gutter.
+    overviewRuler: { width: 1 },
     allowProposedApi: true,
     minimumContrastRatio: bgActive(prefs) ? MCR_BG_ACTIVE : MCR_BG_INACTIVE,
   };
@@ -583,6 +586,38 @@ function rewireSlot(slot: Slot, p: AcquireParams): void {
   p.onSearchReady(slot.searchAddon);
 }
 
+function flushPty(slot: Slot, leafId: number): void {
+  slot.ptyTimer = null;
+  if (slot.currentLeafId !== leafId) return;
+  if (slot.term.cols === slot.lastCols && slot.term.rows === slot.lastRows)
+    return;
+  slot.lastCols = slot.term.cols;
+  slot.lastRows = slot.term.rows;
+  adapter?.resolveLeaf(leafId)?.resizePty(slot.lastCols, slot.lastRows);
+}
+
+// Debounced fit driven by the ResizeObserver below; poisoning lastW before
+// calling this forces the fit through even when the container itself hasn't
+// changed size.
+function scheduleFit(slot: Slot, container: HTMLElement, leafId: number): void {
+  if (slot.fitTimer) clearTimeout(slot.fitTimer);
+  slot.fitTimer = setTimeout(() => {
+    slot.fitTimer = null;
+    if (slot.currentLeafId !== leafId || slot.parked) return;
+    const w = container.clientWidth;
+    const h = container.clientHeight;
+    if (w === slot.lastW && h === slot.lastH) return;
+    slot.lastW = w;
+    slot.lastH = h;
+    slot.fitAddon.fit();
+    if (slot.ptyTimer) clearTimeout(slot.ptyTimer);
+    slot.ptyTimer = setTimeout(
+      () => flushPty(slot, leafId),
+      PTY_RESIZE_DEBOUNCE_MS,
+    );
+  }, FIT_DEBOUNCE_MS);
+}
+
 function setupResizeObserver(slot: Slot, p: AcquireParams): void {
   slot.observer?.disconnect();
   if (slot.fitTimer) clearTimeout(slot.fitTimer);
@@ -591,33 +626,16 @@ function setupResizeObserver(slot: Slot, p: AcquireParams): void {
   slot.ptyTimer = null;
 
   const container = p.container;
-  const flushPty = () => {
-    slot.ptyTimer = null;
-    if (slot.currentLeafId !== p.leafId) return;
-    if (slot.term.cols === slot.lastCols && slot.term.rows === slot.lastRows)
-      return;
-    slot.lastCols = slot.term.cols;
-    slot.lastRows = slot.term.rows;
-    adapter?.resolveLeaf(p.leafId)?.resizePty(slot.lastCols, slot.lastRows);
-  };
-
-  slot.observer = new ResizeObserver(() => {
+  slot.observer = new ResizeObserver((entries) => {
     if (slot.parked) return;
-    if (slot.fitTimer) clearTimeout(slot.fitTimer);
-    slot.fitTimer = setTimeout(() => {
-      slot.fitTimer = null;
-      if (slot.currentLeafId !== p.leafId || slot.parked) return;
-      const w = container.clientWidth;
-      const h = container.clientHeight;
-      if (w === slot.lastW && h === slot.lastH) return;
-      slot.lastW = w;
-      slot.lastH = h;
-      slot.fitAddon.fit();
-      if (slot.ptyTimer) clearTimeout(slot.ptyTimer);
-      slot.ptyTimer = setTimeout(flushPty, PTY_RESIZE_DEBOUNCE_MS);
-    }, FIT_DEBOUNCE_MS);
+    // The screen resizing without the container means xterm re-measured its
+    // cell (webfont finished loading); poison the cache so the fit runs.
+    if (entries.some((e) => e.target !== container)) slot.lastW = -1;
+    scheduleFit(slot, container, p.leafId);
   });
   slot.observer.observe(container);
+  const screen = slot.host.querySelector(".xterm-screen");
+  if (screen) slot.observer.observe(screen);
 }
 
 export type SerializeOutput = {
