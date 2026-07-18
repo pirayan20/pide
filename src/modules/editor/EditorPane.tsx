@@ -44,12 +44,16 @@ import {
   runExternalFormatter,
 } from "./lib/externalFormat";
 import { detectIndentUnit } from "./lib/indent";
+import { gitQuickDiffExtension } from "./lib/gitQuickDiffExtension";
 import { type LanguageResult, resolveLanguage } from "./lib/languageResolver";
 import { FORCE_READ_LIMIT, useDocument } from "./lib/useDocument";
 import { useEditorThemeExt } from "./lib/useEditorThemeExt";
+import { useGitQuickDiff } from "./lib/useGitQuickDiff";
 import { initVimGlobals, vimHandlersExtension } from "./lib/vim";
 
 initVimGlobals();
+
+const GIT_QUICK_DIFF_EXT = gitQuickDiffExtension();
 
 export type EditorPaneHandle = {
   setQuery: (q: string) => void;
@@ -70,6 +74,7 @@ export type EditorPaneHandle = {
 };
 
 type Props = {
+  active: boolean;
   path: string;
   overrideLanguage?: string | null;
   onDirtyChange?: (dirty: boolean) => void;
@@ -91,7 +96,8 @@ function formatBytes(n: number): string {
 // skip re-rendering entirely when App re-renders (terminal events, tab churn).
 export const EditorPane = memo(
   forwardRef<EditorPaneHandle, Props>(function EditorPane(props, ref) {
-    const { path, overrideLanguage, onDirtyChange, onSaved, onClose } = props;
+    const { active, path, overrideLanguage, onDirtyChange, onSaved, onClose } =
+      props;
 
     const { doc, onChange, save, reload, adoptDiskText, openAnyway } =
       useDocument({
@@ -103,6 +109,12 @@ export const EditorPane = memo(
     const adoptDiskTextRef = useRef(adoptDiskText);
     adoptDiskTextRef.current = adoptDiskText;
     const cmRef = useRef<ReactCodeMirrorRef>(null);
+    useGitQuickDiff({
+      active,
+      path,
+      ready: doc.status === "ready" && doc.size <= 256 * 1024,
+      cmRef,
+    });
     const themeExt = useEditorThemeExt();
     const vimMode = usePreferencesStore((s) => s.vimMode);
     const editorWordWrap = usePreferencesStore((s) => s.editorWordWrap);
@@ -226,6 +238,7 @@ export const EditorPane = memo(
         languageCompartment.of([]),
         lspCompartment.of([]),
         diagnosticsReporter(() => pathRef.current),
+        GIT_QUICK_DIFF_EXT,
         keymap.of([
           {
             key: "Mod-s",

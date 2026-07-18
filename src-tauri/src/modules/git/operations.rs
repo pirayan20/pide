@@ -9,13 +9,12 @@ use crate::modules::git::process::{
 };
 use crate::modules::git::types::{
     DiscardEntry, GitBranchEntry, GitBranchListResult, GitCommitFileChange, GitCommitResult,
-    GitDiffContentResult, GitDiffResult, GitLogEntry, GitOutput, GitPanelSnapshot,
-    GitPushResult, GitRepoInfo, GitStatusSnapshot, TextSource, DEFAULT_TIMEOUT_SECS,
-    NETWORK_TIMEOUT_SECS,
+    GitDiffContentResult, GitDiffResult, GitEditorBaselinesResult, GitLogEntry, GitOutput,
+    GitPanelSnapshot, GitPushResult, GitRepoInfo, GitStatusSnapshot, TextSource,
+    DEFAULT_TIMEOUT_SECS, INLINE_DIFF_MAX_BYTES, NETWORK_TIMEOUT_SECS,
 };
 use crate::modules::git::utils::{
-    authorized_repo_root, canonical_dir, resolve_within_repo, split_upstream,
-    ResolvedGitDirectory,
+    authorized_repo_root, canonical_dir, resolve_within_repo, split_upstream, ResolvedGitDirectory,
 };
 use crate::modules::workspace::{WorkspaceEnv, WorkspaceRegistry};
 
@@ -115,6 +114,98 @@ pub fn panel_snapshot(
     Ok(GitPanelSnapshot {
         repo: Some(repo),
         status: Some(status),
+    })
+}
+
+fn baseline_parts(source: TextSource) -> (Option<String>, bool) {
+    match source {
+        TextSource::Missing => (None, false),
+        TextSource::Binary => (Some(String::new()), true),
+        TextSource::Text(text) => (Some(text), false),
+    }
+}
+
+pub fn editor_baselines(
+    registry: &WorkspaceRegistry,
+    path: &str,
+    workspace: &WorkspaceEnv,
+) -> Result<GitEditorBaselinesResult> {
+    let parent_input = Path::new(path)
+        .parent()
+        .ok_or_else(|| GitError::InvalidPath(path.into()))?
+        .to_string_lossy()
+        .into_owned();
+    let snapshot = panel_snapshot(registry, &parent_input, workspace)?;
+    let Some(repo) = snapshot.repo else {
+        return Ok(GitEditorBaselinesResult::disabled(None, None));
+    };
+    let status = snapshot.status.expect("repo snapshot includes status");
+    let repo_root = authorized_repo_root(registry, &repo.repo_root, workspace)?;
+
+    let resolved_file = crate::modules::workspace::resolve_path(path, workspace);
+    let metadata = std::fs::symlink_metadata(&resolved_file).map_err(GitError::Io)?;
+    if metadata.file_type().is_symlink() {
+        return Err(GitError::SymlinkRejected(resolved_file));
+    }
+    let canonical_file = std::fs::canonicalize(&resolved_file).map_err(GitError::Io)?;
+    if !canonical_file.starts_with(&repo_root.local_path) {
+        return Err(GitError::PathOutsideWorkspace(canonical_file));
+    }
+
+    let repo_path = pathspec(&repo_root.local_path, &canonical_file);
+    let changed = status
+        .changed_files
+        .iter()
+        .find(|file| file.path == repo_path);
+    if changed.is_some_and(|file| file.untracked) {
+        return Ok(GitEditorBaselinesResult::disabled(
+            Some(repo.repo_root),
+            Some(repo_path),
+        ));
+    }
+
+    let (index_content, index_binary) = baseline_parts(git_show_text(
+        &repo_root.workspace,
+        &repo_root.git_path,
+        &format!(":{repo_path}"),
+    )?);
+    let Some(index_content) = index_content else {
+        return Ok(GitEditorBaselinesResult::disabled(
+            Some(repo.repo_root),
+            Some(repo_path),
+        ));
+    };
+
+    let head_path = changed
+        .and_then(|file| file.original_path.as_deref())
+        .unwrap_or(&repo_path);
+    let (head_content, head_binary) = baseline_parts(git_show_text(
+        &repo_root.workspace,
+        &repo_root.git_path,
+        &format!("HEAD:{head_path}"),
+    )?);
+    let head_content = head_content.unwrap_or_default();
+    let is_binary = head_binary || index_binary;
+    let oversized =
+        head_content.len() > INLINE_DIFF_MAX_BYTES || index_content.len() > INLINE_DIFF_MAX_BYTES;
+    let disabled = is_binary || oversized;
+
+    Ok(GitEditorBaselinesResult {
+        repo_root: Some(repo.repo_root),
+        repo_path: Some(repo_path),
+        tracked: true,
+        head_content: if disabled {
+            String::new()
+        } else {
+            head_content
+        },
+        index_content: if disabled {
+            String::new()
+        } else {
+            index_content
+        },
+        is_binary,
+        oversized,
     })
 }
 

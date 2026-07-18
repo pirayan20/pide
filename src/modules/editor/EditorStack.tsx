@@ -113,6 +113,7 @@ export function EditorStack({
               )}
               <EditorPane
                 ref={getRefCallback(t.id)}
+                active={visible}
                 path={t.path}
                 overrideLanguage={t.overrideLanguage}
                 onDirtyChange={getDirtyCallback(t.id)}

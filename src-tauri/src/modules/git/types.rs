@@ -5,6 +5,7 @@ pub(crate) const NETWORK_TIMEOUT_SECS: u64 = 120;
 pub(crate) const MAX_TIMEOUT_SECS: u64 = 180;
 pub(crate) const MAX_OUTPUT_BYTES: usize = 2 * 1024 * 1024;
 pub(crate) const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
+pub(crate) const INLINE_DIFF_MAX_BYTES: usize = 256 * 1024;
 pub(crate) const MIN_GIT_VERSION: &str = "2.23";
 
 #[derive(Serialize)]
@@ -71,6 +72,32 @@ pub struct GitDiffContentResult {
     pub is_binary: bool,
     pub fallback_patch: String,
     pub truncated: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitEditorBaselinesResult {
+    pub repo_root: Option<String>,
+    pub repo_path: Option<String>,
+    pub tracked: bool,
+    pub head_content: String,
+    pub index_content: String,
+    pub is_binary: bool,
+    pub oversized: bool,
+}
+
+impl GitEditorBaselinesResult {
+    pub(crate) fn disabled(repo_root: Option<String>, repo_path: Option<String>) -> Self {
+        Self {
+            repo_root,
+            repo_path,
+            tracked: false,
+            head_content: String::new(),
+            index_content: String::new(),
+            is_binary: false,
+            oversized: false,
+        }
+    }
 }
 
 #[derive(Serialize)]

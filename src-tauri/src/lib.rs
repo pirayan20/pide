@@ -274,6 +274,7 @@ pub fn run() {
             git::commands::git_status,
             git::commands::git_diff,
             git::commands::git_diff_content,
+            git::commands::git_editor_baselines,
             git::commands::git_stage,
             git::commands::git_unstage,
             git::commands::git_discard,

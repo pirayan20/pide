@@ -38,6 +38,16 @@ export type GitDiffContentResult = {
   truncated: boolean;
 };
 
+export type GitEditorBaselinesResult = {
+  repoRoot: string | null;
+  repoPath: string | null;
+  tracked: boolean;
+  headContent: string;
+  indexContent: string;
+  isBinary: boolean;
+  oversized: boolean;
+};
+
 export type GitCommitResult = {
   commitSha: string;
   summary: string;
@@ -96,6 +106,29 @@ export type GitBranchListResult = {
 
 const workspace = () => currentWorkspaceEnv();
 
+export type GitChangedEvent = { repoRoot: string };
+type GitChangedListener = (event: GitChangedEvent) => void;
+const gitChangedListeners = new Set<GitChangedListener>();
+
+export function onGitChanged(listener: GitChangedListener): () => void {
+  gitChangedListeners.add(listener);
+  return () => gitChangedListeners.delete(listener);
+}
+
+function notifyGitChanged(repoRoot: string): void {
+  for (const listener of gitChangedListeners) listener({ repoRoot });
+}
+
+async function invokeGitMutation<T>(
+  command: string,
+  repoRoot: string,
+  args: Record<string, unknown>,
+): Promise<T> {
+  const result = await invoke<T>(command, args);
+  notifyGitChanged(repoRoot);
+  return result;
+}
+
 export const native = {
   workspaceCurrentDir: () => invoke<string>("workspace_current_dir"),
   workspaceAuthorize: (path: string, env = currentWorkspaceEnv()) =>
@@ -111,9 +144,15 @@ export const native = {
   gitResolveRepo: (cwd: string, env = currentWorkspaceEnv()) =>
     invoke<GitRepoInfo | null>("git_resolve_repo", { cwd, workspace: env }),
   gitPanelSnapshot: (cwd: string) =>
-    invoke<GitPanelSnapshot>("git_panel_snapshot", { cwd, workspace: workspace() }),
+    invoke<GitPanelSnapshot>("git_panel_snapshot", {
+      cwd,
+      workspace: workspace(),
+    }),
   gitStatus: (repoRoot: string) =>
-    invoke<GitStatusSnapshot>("git_status", { repoRoot, workspace: workspace() }),
+    invoke<GitStatusSnapshot>("git_status", {
+      repoRoot,
+      workspace: workspace(),
+    }),
   gitDiffContent: (
     repoRoot: string,
     path: string,
@@ -127,14 +166,31 @@ export const native = {
       originalPath: originalPath ?? null,
       workspace: workspace(),
     }),
+  gitEditorBaselines: (path: string) =>
+    invoke<GitEditorBaselinesResult>("git_editor_baselines", {
+      path,
+      workspace: workspace(),
+    }),
   gitStage: (repoRoot: string, paths: string[]) =>
-    invoke<void>("git_stage", { repoRoot, paths, workspace: workspace() }),
+    invokeGitMutation<void>("git_stage", repoRoot, {
+      repoRoot,
+      paths,
+      workspace: workspace(),
+    }),
   gitUnstage: (repoRoot: string, paths: string[]) =>
-    invoke<void>("git_unstage", { repoRoot, paths, workspace: workspace() }),
+    invokeGitMutation<void>("git_unstage", repoRoot, {
+      repoRoot,
+      paths,
+      workspace: workspace(),
+    }),
   gitDiscard: (repoRoot: string, entries: GitDiscardEntry[]) =>
-    invoke<void>("git_discard", { repoRoot, entries, workspace: workspace() }),
+    invokeGitMutation<void>("git_discard", repoRoot, {
+      repoRoot,
+      entries,
+      workspace: workspace(),
+    }),
   gitCommit: (repoRoot: string, message: string) =>
-    invoke<GitCommitResult>("git_commit", {
+    invokeGitMutation<GitCommitResult>("git_commit", repoRoot, {
       repoRoot,
       message,
       workspace: workspace(),
@@ -142,10 +198,16 @@ export const native = {
   gitFetch: (repoRoot: string) =>
     invoke<void>("git_fetch", { repoRoot, workspace: workspace() }),
   gitPullFfOnly: (repoRoot: string) =>
-    invoke<void>("git_pull_ff_only", { repoRoot, workspace: workspace() }),
+    invokeGitMutation<void>("git_pull_ff_only", repoRoot, {
+      repoRoot,
+      workspace: workspace(),
+    }),
   gitPush: (repoRoot: string) =>
     invoke<GitPushResult>("git_push", { repoRoot, workspace: workspace() }),
-  gitLog: (repoRoot: string, options?: { limit?: number; beforeSha?: string }) =>
+  gitLog: (
+    repoRoot: string,
+    options?: { limit?: number; beforeSha?: string },
+  ) =>
     invoke<GitLogEntry[]>("git_log", {
       repoRoot,
       limit: options?.limit ?? null,
@@ -183,7 +245,7 @@ export const native = {
       workspace: workspace(),
     }),
   gitCheckoutBranch: (repoRoot: string, branch: string) =>
-    invoke<void>("git_checkout_branch", {
+    invokeGitMutation<void>("git_checkout_branch", repoRoot, {
       repoRoot,
       branch,
       workspace: workspace(),

@@ -2,8 +2,8 @@ use tauri::{AppHandle, Manager};
 
 use crate::modules::git::operations;
 use crate::modules::git::types::{
-    DiscardEntry, GitBranchListResult, GitCommitFileChange, GitCommitResult,
-    GitDiffContentResult, GitDiffResult, GitLogEntry, GitPanelSnapshot, GitPushResult,
+    DiscardEntry, GitBranchListResult, GitCommitFileChange, GitCommitResult, GitDiffContentResult,
+    GitDiffResult, GitEditorBaselinesResult, GitLogEntry, GitPanelSnapshot, GitPushResult,
     GitRepoInfo, GitStatusSnapshot,
 };
 use crate::modules::workspace::{WorkspaceEnv, WorkspaceRegistry};
@@ -95,6 +95,19 @@ pub async fn git_diff_content(
             &workspace,
         )
         .map_err(Into::into)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn git_editor_baselines(
+    path: String,
+    workspace: Option<WorkspaceEnv>,
+    app: AppHandle,
+) -> Result<GitEditorBaselinesResult, String> {
+    let workspace = WorkspaceEnv::from_option(workspace);
+    blocking(app, move |registry| {
+        operations::editor_baselines(registry, &path, &workspace).map_err(Into::into)
     })
     .await
 }

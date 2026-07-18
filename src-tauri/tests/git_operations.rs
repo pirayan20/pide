@@ -498,6 +498,151 @@ fn remote_url_rejects_unsafe_remote_name() {
 }
 
 #[test]
+fn editor_baselines_return_head_and_index_text() {
+    if skip_if_no_git() {
+        return;
+    }
+    let fx = GitRepoFixture::new();
+    fx.write_file("a.txt", "head\nkeep\n");
+    fx.run_git(&["add", "a.txt"]);
+    fx.run_git(&["commit", "-q", "-m", "seed"]);
+
+    fx.write_file("a.txt", "index\nkeep\n");
+    fx.run_git(&["add", "a.txt"]);
+    fx.write_file("a.txt", "index\nlive\n");
+
+    let path = to_canon(fx.repo_path.join("a.txt"));
+    let result = operations::editor_baselines(&fx.registry, &path, &fx.workspace)
+        .expect("editor baselines");
+
+    let repo_root = fx.repo_str();
+    assert_eq!(result.repo_root.as_deref(), Some(repo_root.as_str()));
+    assert_eq!(result.repo_path.as_deref(), Some("a.txt"));
+    assert!(result.tracked);
+    assert_eq!(result.head_content, "head\nkeep\n");
+    assert_eq!(result.index_content, "index\nkeep\n");
+    assert!(!result.is_binary);
+    assert!(!result.oversized);
+}
+
+#[test]
+fn editor_baselines_disable_untracked_files() {
+    if skip_if_no_git() {
+        return;
+    }
+    let fx = GitRepoFixture::new();
+    fx.write_file("new.txt", "new\n");
+    let result = operations::editor_baselines(
+        &fx.registry,
+        &to_canon(fx.repo_path.join("new.txt")),
+        &fx.workspace,
+    )
+    .unwrap();
+    assert!(!result.tracked);
+    assert!(result.head_content.is_empty());
+    assert!(result.index_content.is_empty());
+}
+
+#[test]
+fn editor_baselines_follow_staged_rename_to_head_path() {
+    if skip_if_no_git() {
+        return;
+    }
+    let fx = GitRepoFixture::new();
+    fx.write_file("old.txt", "before\n");
+    fx.run_git(&["add", "old.txt"]);
+    fx.run_git(&["commit", "-q", "-m", "seed"]);
+    fx.run_git(&["mv", "old.txt", "new.txt"]);
+    let result = operations::editor_baselines(
+        &fx.registry,
+        &to_canon(fx.repo_path.join("new.txt")),
+        &fx.workspace,
+    )
+    .unwrap();
+    assert_eq!(result.head_content, "before\n");
+    assert_eq!(result.index_content, "before\n");
+}
+
+#[test]
+fn editor_baselines_disable_binary_files() {
+    if skip_if_no_git() {
+        return;
+    }
+    let fx = GitRepoFixture::new();
+    std::fs::write(fx.repo_path.join("data.bin"), b"a\0b").unwrap();
+    fx.run_git(&["add", "data.bin"]);
+    let result = operations::editor_baselines(
+        &fx.registry,
+        &to_canon(fx.repo_path.join("data.bin")),
+        &fx.workspace,
+    )
+    .unwrap();
+    assert!(result.tracked);
+    assert!(result.is_binary);
+    assert!(result.head_content.is_empty());
+    assert!(result.index_content.is_empty());
+}
+
+#[test]
+fn editor_baselines_disable_files_above_inline_limit() {
+    if skip_if_no_git() {
+        return;
+    }
+    let fx = GitRepoFixture::new();
+    let content = "x".repeat(256 * 1024 + 1);
+    fx.write_file("large.txt", &content);
+    fx.run_git(&["add", "large.txt"]);
+    let result = operations::editor_baselines(
+        &fx.registry,
+        &to_canon(fx.repo_path.join("large.txt")),
+        &fx.workspace,
+    )
+    .unwrap();
+    assert!(result.tracked);
+    assert!(result.oversized);
+    assert!(result.head_content.is_empty());
+    assert!(result.index_content.is_empty());
+}
+
+#[test]
+fn editor_baselines_use_empty_head_for_staged_new_file() {
+    if skip_if_no_git() {
+        return;
+    }
+    let fx = GitRepoFixture::new();
+    fx.write_file("new.txt", "new\n");
+    fx.run_git(&["add", "new.txt"]);
+    let result = operations::editor_baselines(
+        &fx.registry,
+        &to_canon(fx.repo_path.join("new.txt")),
+        &fx.workspace,
+    )
+    .unwrap();
+    assert!(result.tracked);
+    assert!(result.head_content.is_empty());
+    assert_eq!(result.index_content, "new\n");
+}
+
+#[test]
+fn editor_baselines_reject_paths_outside_workspace() {
+    if skip_if_no_git() {
+        return;
+    }
+    let fx = GitRepoFixture::new();
+    let outside = TempDir::new().unwrap();
+    std::fs::write(outside.path().join("outside.txt"), "outside\n").unwrap();
+    match operations::editor_baselines(
+        &fx.registry,
+        &to_canon(outside.path().join("outside.txt")),
+        &fx.workspace,
+    ) {
+        Err(GitError::PathOutsideWorkspace(_)) => {}
+        Err(other) => panic!("expected PathOutsideWorkspace, got {other}"),
+        Ok(_) => panic!("expected path rejection"),
+    }
+}
+
+#[test]
 fn unauthorized_path_is_rejected() {
     if skip_if_no_git() {
         return;
