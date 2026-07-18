@@ -1,87 +1,84 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { Tab } from "@/modules/tabs";
 import { isSerializableTab, serializeTabs } from "./serialize";
-import { saveState } from "./store";
+import { saveProjectState } from "./store";
 import { useSpaces } from "./useSpaces";
 
 const DEBOUNCE_MS = 3000;
 
-type Snapshot = { tabs: Tab[]; activeId: number; activeSpaceId: string };
+type Snapshot = {
+  tabs: Tab[];
+  activeId: number | null;
+  activeProjectId: string | null;
+};
 
 type Params = Snapshot & {
-  /** Gate writes until boot hydration finished, so restore never round-trips. */
   enabled: boolean;
 };
 
-type LastWrite = { json: string; activeTabIndex: number };
+type LastWrite = { json: string; activeTabIndex: number | null };
 
 export function useSpacePersistence({
   tabs,
   activeId,
-  activeSpaceId,
+  activeProjectId,
   enabled,
 }: Params) {
   const last = useRef<Map<string, LastWrite>>(new Map());
   const seeded = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const latest = useRef<Snapshot>({ tabs, activeId, activeSpaceId });
-  latest.current = { tabs, activeId, activeSpaceId };
+  const latest = useRef<Snapshot>({ tabs, activeId, activeProjectId });
+  latest.current = { tabs, activeId, activeProjectId };
 
-  // Seed each space's last-known active index from disk so the first flush
-  // preserves it for spaces the user never opens (empty json forces one write
-  // with the correct index rather than clobbering it to 0).
   if (enabled && !seeded.current) {
     seeded.current = true;
-    for (const [id, idx] of Object.entries(
+    for (const [id, index] of Object.entries(
       useSpaces.getState().initialActiveIndex,
     )) {
-      last.current.set(id, { json: "", activeTabIndex: idx });
+      last.current.set(id, { json: "", activeTabIndex: index });
     }
   }
 
-  const flush = useCallback((snap: Snapshot) => {
-    const groups = new Map<string, Tab[]>();
-    for (const t of snap.tabs) {
-      const arr = groups.get(t.spaceId);
-      if (arr) arr.push(t);
-      else groups.set(t.spaceId, [t]);
-    }
-
-    for (const [spaceId, group] of groups) {
+  const flush = useCallback((snapshot: Snapshot) => {
+    for (const project of useSpaces.getState().projects) {
+      const group = snapshot.tabs.filter(
+        (tab) => tab.projectId === project.id,
+      );
       const serialized = serializeTabs(group);
-      const prev = last.current.get(spaceId);
-      let activeTabIndex = prev?.activeTabIndex ?? 0;
-      if (spaceId === snap.activeSpaceId) {
-        const idx = group
+      const previous = last.current.get(project.id);
+      let activeTabIndex = previous?.activeTabIndex ?? null;
+      if (group.length === 0) {
+        activeTabIndex = null;
+      } else if (project.id === snapshot.activeProjectId) {
+        const index = group
           .filter(isSerializableTab)
-          .findIndex((t) => t.id === snap.activeId);
-        if (idx >= 0) activeTabIndex = idx;
+          .findIndex((tab) => tab.id === snapshot.activeId);
+        activeTabIndex = index >= 0 ? index : null;
       }
       const json = JSON.stringify(serialized);
       if (
-        prev &&
-        prev.json === json &&
-        prev.activeTabIndex === activeTabIndex
+        previous?.json === json &&
+        previous.activeTabIndex === activeTabIndex
       ) {
         continue;
       }
-      last.current.set(spaceId, { json, activeTabIndex });
-      void saveState(spaceId, { tabs: serialized, activeTabIndex });
+      last.current.set(project.id, { json, activeTabIndex });
+      void saveProjectState(project.id, { tabs: serialized, activeTabIndex });
     }
   }, []);
 
   useEffect(() => {
     if (!enabled) return;
-    const snap: Snapshot = { tabs, activeId, activeSpaceId };
+    const snapshot = { tabs, activeId, activeProjectId };
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
       timer.current = null;
-      flush(snap);
+      flush(snapshot);
     }, DEBOUNCE_MS);
     return () => {
       if (timer.current) clearTimeout(timer.current);
     };
-  }, [tabs, activeId, activeSpaceId, enabled, flush]);
+  }, [tabs, activeId, activeProjectId, enabled, flush]);
 
   useEffect(() => {
     if (!enabled) return;

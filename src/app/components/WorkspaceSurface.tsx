@@ -1,4 +1,4 @@
-import type { ComponentProps } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { EditorStack, GitDiffStack } from "@/modules/editor";
 import { GitHistoryStack } from "@/modules/git-history";
@@ -14,8 +14,9 @@ type GitHistoryStackProps = ComponentProps<typeof GitHistoryStack>;
 
 type Props = {
   tabs: Tab[];
-  activeId: number;
+  activeId: number | null;
   activeTab: Tab | undefined;
+  hierarchyState?: ReactNode;
   registerTerminalHandle: TerminalStackProps["registerHandle"];
   onSearchReady: TerminalStackProps["onSearchReady"];
   onCwd: TerminalStackProps["onCwd"];
@@ -40,6 +41,7 @@ export function WorkspaceSurface({
   tabs,
   activeId,
   activeTab,
+  hierarchyState,
   registerTerminalHandle,
   onSearchReady,
   onCwd,
@@ -147,6 +149,9 @@ export function WorkspaceSurface({
           onSearchHandle={onGitHistorySearchHandle}
         />
       </div>
+      {!activeTab && hierarchyState ? (
+        <div className="absolute inset-0 z-10">{hierarchyState}</div>
+      ) : null}
     </div>
   );
 }

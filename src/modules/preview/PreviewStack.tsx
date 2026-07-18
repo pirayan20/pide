@@ -5,7 +5,7 @@ import { PreviewPane, type PreviewPaneHandle } from "./PreviewPane";
 
 type Props = {
   tabs: Tab[];
-  activeId: number;
+  activeId: number | null;
   onUrlChange: (id: number, url: string) => void;
   registerHandle: (id: number, handle: PreviewPaneHandle | null) => void;
 };

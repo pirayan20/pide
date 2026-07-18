@@ -32,10 +32,9 @@ export const COMMAND_GROUPS = [
 
 export type CommandPaletteActionContext = {
   tabs: Tab[];
-  activeId: number;
+  activeId: number | null;
   searchTarget: SearchTarget;
   explorerRoot: string | null;
-  home: string | null;
   openNewTab: () => void;
   openNewBlock: () => void;
   openNewPrivate: () => void;
@@ -53,9 +52,12 @@ export type CommandPaletteActionContext = {
   openKeyboardShortcuts: () => void;
   spaces: { id: string; name: string }[];
   activeSpaceId: string | null;
+  projects: { id: string; name: string }[];
+  activeProjectId: string | null;
   openSpacesOverview: () => void;
   newSpace: () => void;
   switchSpace: (id: string) => void;
+  switchProject: (id: string) => void;
 };
 
 const noop = () => {};
@@ -68,15 +70,13 @@ export function createCommandItems(
   const activePaneCount = activeTerminalTab
     ? leafIds(activeTerminalTab.paneTree).length
     : 0;
-  const onlyOneTab = ctx.tabs.length < 2;
-  const noWorkspaceRoot = !ctx.explorerRoot && !ctx.home;
+  const noProject = !ctx.explorerRoot;
   const splitDisabled = !activeTerminalTab
     ? "No terminal tab"
     : activePaneCount >= MAX_PANES_PER_TAB
       ? "Pane limit"
       : undefined;
-  const closeDisabled =
-    onlyOneTab && activePaneCount < 2 ? "Last tab" : undefined;
+  const closeDisabled = activeTab ? undefined : "No active tab";
 
   return [
     {
@@ -127,14 +127,25 @@ export function createCommandItems(
       icon: DashboardSquare01Icon,
       run: ctx.newSpace,
     },
-    ...ctx.spaces.map((sp) => ({
-      id: `spaces.switch.${sp.id}`,
-      title: `Switch to ${sp.name}`,
+    ...ctx.spaces.map((space) => ({
+      id: `spaces.switch.${space.id}`,
+      title: `Switch to ${space.name}`,
       group: "Spaces" as const,
-      keywords: ["space", "switch", "session", sp.name],
+      keywords: ["space", "switch", "session", space.name],
       icon: DashboardSquare01Icon,
-      disabledReason: sp.id === ctx.activeSpaceId ? "Current space" : undefined,
-      run: () => ctx.switchSpace(sp.id),
+      disabledReason:
+        space.id === ctx.activeSpaceId ? "Current space" : undefined,
+      run: () => ctx.switchSpace(space.id),
+    })),
+    ...ctx.projects.map((project) => ({
+      id: `projects.switch.${project.id}`,
+      title: `Switch to ${project.name}`,
+      group: "Spaces" as const,
+      keywords: ["project", "folder", "switch", project.name],
+      icon: DashboardSquare01Icon,
+      disabledReason:
+        project.id === ctx.activeProjectId ? "Current project" : undefined,
+      run: () => ctx.switchProject(project.id),
     })),
     {
       id: "tab.new",
@@ -143,6 +154,7 @@ export function createCommandItems(
       keywords: ["shell", "terminal", "new tab"],
       icon: TerminalIcon,
       shortcutId: "tab.new",
+      disabledReason: noProject ? "No project selected" : undefined,
       run: ctx.openNewTab,
     },
     {
@@ -151,6 +163,7 @@ export function createCommandItems(
       group: "Tabs",
       keywords: ["blocks", "warp", "command blocks", "terminal"],
       icon: DashboardSquare01Icon,
+      disabledReason: noProject ? "No project selected" : undefined,
       run: ctx.openNewBlock,
     },
     {
@@ -160,6 +173,7 @@ export function createCommandItems(
       keywords: ["privacy", "private", "incognito", "not restored"],
       icon: IncognitoIcon,
       shortcutId: "tab.newPrivate",
+      disabledReason: noProject ? "No project selected" : undefined,
       run: ctx.openNewPrivate,
     },
     {
@@ -169,7 +183,7 @@ export function createCommandItems(
       keywords: ["file", "editor", "create"],
       icon: FileEditIcon,
       shortcutId: "tab.newEditor",
-      disabledReason: noWorkspaceRoot ? "No workspace root" : undefined,
+      disabledReason: noProject ? "No project selected" : undefined,
       run: ctx.openNewEditor,
     },
     {
@@ -179,6 +193,7 @@ export function createCommandItems(
       keywords: ["browser", "web", "localhost", "preview"],
       icon: Globe02Icon,
       shortcutId: "tab.newPreview",
+      disabledReason: noProject ? "No project selected" : undefined,
       run: ctx.openNewPreview,
     },
     {
@@ -217,6 +232,7 @@ export function createCommandItems(
       group: "Git",
       keywords: ["git", "graph", "history", "log", "commits"],
       icon: SourceCodeIcon,
+      disabledReason: noProject ? "No project selected" : undefined,
       run: ctx.openGitGraph,
     },
     {
@@ -235,6 +251,7 @@ export function createCommandItems(
       keywords: ["grep", "ripgrep", "text", "contents", "search in files"],
       icon: FileSearchIcon,
       trailing: "#",
+      disabledReason: noProject ? "No project selected" : undefined,
       run: noop,
     },
     {
@@ -263,7 +280,7 @@ export function createCommandItems(
       keywords: ["explorer", "workspace", "file", "open"],
       icon: Search01Icon,
       shortcutId: "explorer.search",
-      disabledReason: ctx.explorerRoot ? undefined : "No workspace root",
+      disabledReason: noProject ? "No project selected" : undefined,
       run: ctx.focusExplorerSearch,
     },
     {

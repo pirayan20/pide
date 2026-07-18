@@ -98,12 +98,18 @@ const workspace = () => currentWorkspaceEnv();
 
 export const native = {
   workspaceCurrentDir: () => invoke<string>("workspace_current_dir"),
-  workspaceAuthorize: (path: string) =>
-    invoke<string>("workspace_authorize", { path, workspace: workspace() }),
-  canonicalize: (path: string) =>
-    invoke<string>("fs_canonicalize", { path, workspace: workspace() }),
-  gitResolveRepo: (cwd: string) =>
-    invoke<GitRepoInfo | null>("git_resolve_repo", { cwd, workspace: workspace() }),
+  workspaceAuthorize: (path: string, env = currentWorkspaceEnv()) =>
+    invoke<string>("workspace_authorize", { path, workspace: env }),
+  canonicalize: (path: string, env = currentWorkspaceEnv()) =>
+    invoke<string>("fs_canonicalize", { path, workspace: env }),
+  fileStat: (path: string, env = currentWorkspaceEnv()) =>
+    invoke<{
+      size: number;
+      mtime: number;
+      kind: "file" | "dir" | "symlink";
+    }>("fs_stat", { path, workspace: env }),
+  gitResolveRepo: (cwd: string, env = currentWorkspaceEnv()) =>
+    invoke<GitRepoInfo | null>("git_resolve_repo", { cwd, workspace: env }),
   gitPanelSnapshot: (cwd: string) =>
     invoke<GitPanelSnapshot>("git_panel_snapshot", { cwd, workspace: workspace() }),
   gitStatus: (repoRoot: string) =>

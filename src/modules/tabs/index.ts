@@ -7,9 +7,10 @@ export {
 export { labelFor } from "./lib/tabLabel";
 export {
   MAX_PANES_PER_TAB,
-  DEFAULT_SPACE_ID,
   useTabs,
-  nextActiveInSpace,
+  nextActiveInProject,
+  pickTabByProjectIndex,
+  planProjectTabsRemoval,
   type Tab,
   type TerminalTab,
   type EditorTab,
@@ -20,5 +21,4 @@ export {
   type GitCommitFileDiffTab,
   type TabPatch,
 } from "./lib/useTabs";
-export { useWorkspaceCwd } from "./lib/useWorkspaceCwd";
 export { useWindowTitle } from "./lib/useWindowTitle";

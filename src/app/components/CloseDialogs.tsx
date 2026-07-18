@@ -8,7 +8,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import type { AppCloseBlocker } from "@/app/hooks/useAppCloseGuard";
+import type { CloseBlocker } from "@/app/hooks/closeBlockers";
+import type { HierarchyCloseRequest } from "@/app/hooks/useHierarchyCloseGuard";
 import type { Tab } from "@/modules/tabs";
 
 type Props = {
@@ -22,12 +23,29 @@ type Props = {
   pendingDeleteTabs: number[] | null;
   onCancelDeleteClose: () => void;
   onConfirmDeleteClose: () => void;
-  pendingAppClose: AppCloseBlocker | null;
+  pendingAppClose: CloseBlocker | null;
   onCancelAppClose: () => void;
   onConfirmAppClose: () => void;
+  pendingHierarchyClose: HierarchyCloseRequest | null;
+  onCancelHierarchyClose: () => void;
+  onConfirmHierarchyClose: () => void;
 };
 
-function appCloseMessage(blocker: AppCloseBlocker): string {
+function hierarchyCloseMessage(request: HierarchyCloseRequest): string {
+  const impact =
+    request.kind === "project"
+      ? `Removing ${request.name} detaches the Project. Its folder and files will not be deleted.`
+      : `Deleting ${request.name} detaches every Project in the Space. Their folders and files will not be deleted.`;
+  const blockers = [
+    request.blocker.dirtyEditors > 0
+      ? `${request.blocker.dirtyEditors} unsaved ${request.blocker.dirtyEditors === 1 ? "file" : "files"}`
+      : null,
+    request.blocker.busyTerminal ? "a running terminal process" : null,
+  ].filter(Boolean);
+  return `${impact} Continuing will close ${blockers.join(" and ")}.`;
+}
+
+function appCloseMessage(blocker: CloseBlocker): string {
   const dirty =
     blocker.dirtyEditors === 1
       ? "1 file has unsaved changes"
@@ -56,6 +74,9 @@ export function CloseDialogs({
   pendingAppClose,
   onCancelAppClose,
   onConfirmAppClose,
+  pendingHierarchyClose,
+  onCancelHierarchyClose,
+  onConfirmHierarchyClose,
 }: Props) {
   return (
     <>
@@ -133,6 +154,36 @@ export function CloseDialogs({
             </AlertDialogCancel>
             <AlertDialogAction onClick={onConfirmDeleteClose}>
               Close Anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={pendingHierarchyClose !== null}
+        onOpenChange={(open) => !open && onCancelHierarchyClose()}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pendingHierarchyClose?.kind === "project"
+                ? "Remove Project?"
+                : "Delete Space?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingHierarchyClose
+                ? hierarchyCloseMessage(pendingHierarchyClose)
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={onCancelHierarchyClose}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={() => void onConfirmHierarchyClose()}>
+              {pendingHierarchyClose?.kind === "project"
+                ? "Remove Project"
+                : "Delete Space"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

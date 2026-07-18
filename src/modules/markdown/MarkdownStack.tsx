@@ -4,7 +4,7 @@ import { MarkdownPreviewPane } from "./MarkdownPreviewPane";
 
 type Props = {
   tabs: Tab[];
-  activeId: number;
+  activeId: number | null;
   onSetMarkdownView: (id: number, mode: "rendered" | "raw") => void;
 };
 

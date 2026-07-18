@@ -6,7 +6,7 @@ import { EditorPane, type EditorPaneHandle } from "./EditorPane";
 
 type Props = {
   tabs: Tab[];
-  activeId: number;
+  activeId: number | null;
   onDirtyChange: (id: number, dirty: boolean) => void;
   registerHandle: (id: number, handle: EditorPaneHandle | null) => void;
   onCloseTab: (id: number) => void;

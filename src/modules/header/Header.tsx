@@ -25,7 +25,7 @@ import {
 
 type Props = {
   tabs: Tab[];
-  activeId: number;
+  activeId: number | null;
   onSelect: (id: number) => void;
   onNew: () => void;
   onNewBlock: () => void;
@@ -48,6 +48,7 @@ type Props = {
   spaceSwitcher: ReactNode;
   searchTarget: SearchTarget;
   searchRef: RefObject<SearchInlineHandle | null>;
+  creationDisabled?: boolean;
 };
 
 const COMPACT_WIDTH = 720;
@@ -74,6 +75,7 @@ export function Header({
   spaceSwitcher,
   searchTarget,
   searchRef,
+  creationDisabled,
 }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [compact, setCompact] = useState(false);
@@ -158,6 +160,7 @@ export function Header({
           onReorder={onReorder}
           onOverrideLanguage={onOverrideLanguage}
           compact={compact}
+          creationDisabled={creationDisabled}
         />
         <div data-tauri-drag-region className="h-full min-w-2 flex-1" />
       </div>

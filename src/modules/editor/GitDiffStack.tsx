@@ -3,7 +3,7 @@ import { GitDiffPane } from "./GitDiffPane";
 
 type Props = {
   tabs: Tab[];
-  activeId: number;
+  activeId: number | null;
 };
 
 export function GitDiffStack({ tabs, activeId }: Props) {

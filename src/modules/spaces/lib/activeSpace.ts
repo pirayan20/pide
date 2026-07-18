@@ -1,5 +1,5 @@
 import type { WorkspaceEnv } from "@/modules/workspace";
-import type { SpaceMeta } from "./store";
+import type { ProjectAvailability, ProjectMeta, SpaceMeta } from "./store";
 
 export function findActiveSpace(
   spaces: SpaceMeta[],
@@ -12,20 +12,22 @@ export function findActiveSpace(
   return spaces[0] ?? null;
 }
 
+export function activeProjectRoot(
+  projects: ProjectMeta[],
+  activeProjectId: string | null,
+  availability: Record<string, ProjectAvailability>,
+): string | null {
+  if (!activeProjectId || availability[activeProjectId] !== "available") {
+    return null;
+  }
+  return (
+    projects.find((project) => project.id === activeProjectId)?.root ?? null
+  );
+}
+
 export function activeSpaceEnv(
   spaces: SpaceMeta[],
   activeId: string | null,
 ): WorkspaceEnv {
   return findActiveSpace(spaces, activeId)?.env ?? { kind: "local" };
-}
-
-// A WSL space falls back to null, not the local cwd, so its first tab opens at
-// the WSL home instead of a Windows path.
-export function freshTabCwd(
-  env: WorkspaceEnv,
-  restoredHome: string | null,
-  launchCwd: string | null,
-  home: string | null,
-): string | null {
-  return restoredHome ?? (env.kind === "local" ? (launchCwd ?? home) : null);
 }

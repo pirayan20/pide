@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { PaneNode } from "@/modules/terminal/lib/panes";
 import type { Tab } from "@/modules/tabs/lib/useTabs";
-import { hydrateTabs, serializeTabs, type SerializedTab } from "./serialize";
+import {
+  hydrateTabs,
+  rebaseSerializedTabs,
+  serializeTabs,
+  type SerializedTab,
+} from "./serialize";
 
 function counter(start = 100): () => number {
   let n = start;
@@ -16,7 +21,7 @@ function term(over: Partial<Extract<Tab, { kind: "terminal" }>>): Tab {
   return {
     id: 1,
     kind: "terminal",
-    spaceId: "s1",
+    projectId: "s1",
     title: "shell",
     paneTree: { kind: "leaf", id: 2, cwd: "/a" },
     activeLeafId: 2,
@@ -32,7 +37,7 @@ describe("serializeTabs", () => {
       {
         id: 5,
         kind: "git-diff",
-        spaceId: "s1",
+        projectId: "s1",
         title: "d",
         path: "/a/x",
         repoRoot: "/a",
@@ -42,7 +47,7 @@ describe("serializeTabs", () => {
       {
         id: 7,
         kind: "editor",
-        spaceId: "s1",
+        projectId: "s1",
         title: "x",
         path: "/a/x.ts",
         dirty: false,
@@ -93,11 +98,11 @@ describe("hydrateTabs", () => {
       }),
     ];
     const serialized = serializeTabs(tabs);
-    const [restored] = hydrateTabs(serialized, "s2", counter());
+    const [restored] = hydrateTabs(serialized, "project-2", counter());
     expect(restored.kind).toBe("terminal");
     if (restored.kind !== "terminal") return;
 
-    expect(restored.spaceId).toBe("s2");
+    expect(restored.projectId).toBe("project-2");
     expect(restored.cold).toBe(true);
     expect(restored.blocks).toBe(true);
     expect(restored.customTitle).toBe("x");
@@ -154,6 +159,61 @@ describe("hydrateTabs", () => {
       "foo.ts",
       "localhost:5173",
       "README.md",
+    ]);
+  });
+
+  it("hydrates every restored tab into the requested Project", () => {
+    const restored = hydrateTabs(
+      [
+        { kind: "editor", path: "/repo/a.ts" },
+        { kind: "preview", url: "http://localhost:5173" },
+      ],
+      "project-2",
+      counter(),
+    );
+    expect(restored.map((tab) => tab.projectId)).toEqual([
+      "project-2",
+      "project-2",
+    ]);
+  });
+});
+
+describe("rebaseSerializedTabs", () => {
+  it("rebases persisted terminal and file paths for a relocated Project", () => {
+    const rebased = rebaseSerializedTabs(
+      [
+        {
+          kind: "terminal",
+          tree: {
+            kind: "split",
+            dir: "row",
+            children: [
+              { kind: "leaf", cwd: "/old/repo" },
+              { kind: "leaf", cwd: "/old/repo/pkg" },
+            ],
+          },
+        },
+        { kind: "editor", path: "/old/repo/a.ts" },
+        { kind: "markdown", path: "/outside/README.md" },
+        { kind: "preview", url: "http://localhost:5173" },
+      ],
+      "/old/repo",
+      "/new/repo",
+      false,
+    );
+    expect(rebased).toMatchObject([
+      {
+        kind: "terminal",
+        tree: {
+          children: [
+            { cwd: "/new/repo" },
+            { cwd: "/new/repo/pkg" },
+          ],
+        },
+      },
+      { kind: "editor", path: "/new/repo/a.ts" },
+      { kind: "markdown", path: "/outside/README.md" },
+      { kind: "preview", url: "http://localhost:5173" },
     ]);
   });
 });

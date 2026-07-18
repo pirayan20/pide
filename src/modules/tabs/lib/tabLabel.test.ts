@@ -6,7 +6,7 @@ function terminalTab(over: Partial<TerminalTab> = {}): TerminalTab {
   return {
     id: 1,
     kind: "terminal",
-    spaceId: "default",
+    projectId: "default",
     title: "shell",
     paneTree: { kind: "leaf", id: 2 },
     activeLeafId: 2,

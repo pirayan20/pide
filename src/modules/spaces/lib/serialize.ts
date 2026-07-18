@@ -1,3 +1,4 @@
+import { rebasePath } from "./projectPaths";
 import {
   isLeaf,
   type PaneNode,
@@ -143,7 +144,7 @@ function collectLeaves(node: PaneNode): Array<{ id: number; cwd?: string }> {
 
 function hydrateTab(
   s: SerializedTab,
-  spaceId: string,
+  projectId: string,
   allocId: () => number,
 ): Tab | null {
   switch (s.kind) {
@@ -155,7 +156,7 @@ function hydrateTab(
       return {
         id: allocId(),
         kind: "terminal",
-        spaceId,
+        projectId,
         cold: true,
         title,
         cwd: firstLeafCwd,
@@ -169,7 +170,7 @@ function hydrateTab(
       return {
         id: allocId(),
         kind: "editor",
-        spaceId,
+        projectId,
         cold: true,
         title: basename(s.path),
         path: s.path,
@@ -180,7 +181,7 @@ function hydrateTab(
       return {
         id: allocId(),
         kind: "preview",
-        spaceId,
+        projectId,
         cold: true,
         title: titleFromUrl(s.url),
         url: s.url,
@@ -189,7 +190,7 @@ function hydrateTab(
       return {
         id: allocId(),
         kind: "markdown",
-        spaceId,
+        projectId,
         cold: true,
         title: basename(s.path),
         path: s.path,
@@ -199,8 +200,58 @@ function hydrateTab(
   }
 }
 
+function rebaseSerializedNode(
+  node: SerializedNode,
+  oldRoot: string,
+  newRoot: string,
+  caseInsensitive: boolean,
+): SerializedNode {
+  if (node.kind === "leaf") {
+    return node.cwd
+      ? {
+          ...node,
+          cwd: rebasePath(node.cwd, oldRoot, newRoot, caseInsensitive),
+        }
+      : node;
+  }
+  return {
+    ...node,
+    children: node.children.map((child) =>
+      rebaseSerializedNode(child, oldRoot, newRoot, caseInsensitive),
+    ),
+  };
+}
+
+export function rebaseSerializedTabs(
+  tabs: SerializedTab[],
+  oldRoot: string,
+  newRoot: string,
+  caseInsensitive: boolean,
+): SerializedTab[] {
+  return tabs.map((tab) => {
+    if (tab.kind === "terminal") {
+      return {
+        ...tab,
+        tree: rebaseSerializedNode(
+          tab.tree,
+          oldRoot,
+          newRoot,
+          caseInsensitive,
+        ),
+      };
+    }
+    if (tab.kind === "editor" || tab.kind === "markdown") {
+      return {
+        ...tab,
+        path: rebasePath(tab.path, oldRoot, newRoot, caseInsensitive),
+      };
+    }
+    return tab;
+  });
+}
+
 export function freshTerminalTab(
-  spaceId: string,
+  projectId: string,
   cwd: string | null,
   allocId: () => number,
 ): TerminalTab {
@@ -208,7 +259,7 @@ export function freshTerminalTab(
   return {
     id: allocId(),
     kind: "terminal",
-    spaceId,
+    projectId,
     cold: true,
     title: cwd ? basename(cwd) : "shell",
     cwd: cwd ?? undefined,
@@ -219,14 +270,14 @@ export function freshTerminalTab(
 
 export function hydrateTabs(
   serialized: SerializedTab[],
-  spaceId: string,
+  projectId: string,
   allocId: () => number,
 ): Tab[] {
   if (!Array.isArray(serialized)) return [];
   const out: Tab[] = [];
   for (const s of serialized) {
     try {
-      const tab = hydrateTab(s, spaceId, allocId);
+      const tab = hydrateTab(s, projectId, allocId);
       if (tab) out.push(tab);
     } catch {
       // Skip corrupted entries rather than failing the whole restore.

@@ -57,7 +57,7 @@ import type { EditorTab, Tab } from "./lib/useTabs";
 
 type Props = {
   tabs: Tab[];
-  activeId: number;
+  activeId: number | null;
   onSelect: (id: number) => void;
   onNew: () => void;
   onNewBlock: () => void;
@@ -74,6 +74,7 @@ type Props = {
   onReorder: (fromId: number, toGapIndex: number) => void;
   onOverrideLanguage?: (id: number, lang: string | null) => void;
   compact?: boolean;
+  creationDisabled?: boolean;
 };
 
 export function TabBar({
@@ -92,6 +93,7 @@ export function TabBar({
   onReorder,
   onOverrideLanguage,
   compact,
+  creationDisabled,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -543,8 +545,9 @@ export function TabBar({
             <Button
               variant="ghost"
               size="icon"
+              disabled={creationDisabled}
               className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-              title="New tab"
+              title={creationDisabled ? "No project selected" : "New tab"}
             >
               <HugeiconsIcon icon={PlusSignIcon} size={14} strokeWidth={2} />
             </Button>

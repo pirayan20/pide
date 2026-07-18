@@ -1,13 +1,15 @@
-import type { WorkspaceEnv } from "@/modules/workspace";
 import { describe, expect, it } from "vitest";
-import { activeSpaceEnv, findActiveSpace, freshTabCwd } from "./activeSpace";
-import type { SpaceMeta } from "./store";
+import {
+  activeProjectRoot,
+  activeSpaceEnv,
+  findActiveSpace,
+} from "./activeSpace";
+import type { ProjectMeta, SpaceMeta } from "./store";
 
 function space(over: Partial<SpaceMeta>): SpaceMeta {
   return {
     id: "s1",
     name: "Space",
-    root: null,
     env: { kind: "local" },
     createdAt: 0,
     updatedAt: 0,
@@ -29,6 +31,33 @@ describe("findActiveSpace", () => {
 
   it("returns null when there are no spaces", () => {
     expect(findActiveSpace([], "a")).toBeNull();
+  });
+});
+
+describe("activeProjectRoot", () => {
+  const projects: ProjectMeta[] = [
+    {
+      id: "p1",
+      spaceId: "s1",
+      name: "Project",
+      root: "/repo",
+      createdAt: 0,
+      updatedAt: 0,
+    },
+  ];
+
+  it("returns only the selected available Project root", () => {
+    expect(activeProjectRoot(projects, "p1", { p1: "available" })).toBe(
+      "/repo",
+    );
+  });
+
+  it("returns null for null, unknown, and unavailable Projects", () => {
+    expect(activeProjectRoot(projects, null, { p1: "available" })).toBeNull();
+    expect(
+      activeProjectRoot(projects, "missing", { missing: "available" }),
+    ).toBeNull();
+    expect(activeProjectRoot(projects, "p1", { p1: "unavailable" })).toBeNull();
   });
 });
 
@@ -54,26 +83,5 @@ describe("activeSpaceEnv", () => {
 
   it("defaults to local when there are no spaces", () => {
     expect(activeSpaceEnv([], "a")).toEqual({ kind: "local" });
-  });
-});
-
-describe("freshTabCwd", () => {
-  const wsl: WorkspaceEnv = { kind: "wsl", distro: "Ubuntu" };
-  const local: WorkspaceEnv = { kind: "local" };
-
-  it("prefers the restored home for any env", () => {
-    expect(freshTabCwd(wsl, "/home/aj", "C:/Users/me", "C:/Users/me")).toBe(
-      "/home/aj",
-    );
-  });
-
-  it("returns null for a WSL space when its home did not resolve", () => {
-    expect(freshTabCwd(wsl, null, "C:/Users/me", "C:/Users/me")).toBeNull();
-  });
-
-  it("falls back to the local launch cwd then home for a local space", () => {
-    expect(freshTabCwd(local, null, "C:/work", "C:/Users/me")).toBe("C:/work");
-    expect(freshTabCwd(local, null, null, "C:/Users/me")).toBe("C:/Users/me");
-    expect(freshTabCwd(local, null, null, null)).toBeNull();
   });
 });

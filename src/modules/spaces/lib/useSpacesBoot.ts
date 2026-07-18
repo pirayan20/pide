@@ -1,47 +1,63 @@
+import { useEffect, useRef } from "react";
 import { native } from "@/lib/native";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import type { Tab } from "@/modules/tabs";
-import { DEFAULT_SPACE_ID } from "@/modules/tabs/lib/useTabs";
 import { isLeaf, type PaneNode } from "@/modules/terminal/lib/panes";
 import { parseWorkspaceScopeKey, type WorkspaceEnv } from "@/modules/workspace";
-import { useEffect, useRef } from "react";
-import { activeSpaceEnv, freshTabCwd } from "./activeSpace";
+import { activeSpaceEnv } from "./activeSpace";
+import { planHierarchyBoot, restoredActiveTabId } from "./bootPlan";
 import { freshTerminalTab, hydrateTabs } from "./serialize";
-import { loadAll, type SpaceMeta, saveActiveId, saveSpacesList } from "./store";
+import {
+  DEFAULT_SPACE_ID,
+  loadAll,
+  newProjectId,
+  resetHierarchy,
+  saveActiveProjects,
+  saveActiveSpaceId,
+  saveProjectsList,
+  saveSpacesList,
+  type ProjectAvailability,
+  type ProjectMeta,
+  type SpaceMeta,
+} from "./store";
 import { useSpaces } from "./useSpaces";
 
 type Params = {
   ready: boolean;
   launchCwd: string | null;
-  home: string | null;
   allocId: () => number;
-  replaceTabs: (tabs: Tab[], activeId: number) => void;
+  replaceTabs: (tabs: Tab[], activeId: number | null) => void;
   markBooted: () => void;
-  setActiveSpaceForNewTabs: (id: string) => void;
+  setActiveProjectForNewTabs: (id: string | null) => void;
   adoptWorkspaceEnv: (env: WorkspaceEnv) => Promise<string | null>;
 };
 
-function uniqueCwds(tabs: Tab[]): string[] {
-  const set = new Set<string>();
-  const walk = (n: PaneNode) => {
-    if (isLeaf(n)) {
-      if (n.cwd) set.add(n.cwd);
+function basename(path: string): string {
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] ?? path;
+}
+
+function terminalCwds(tab: Tab): string[] {
+  if (tab.kind !== "terminal") return [];
+  const result: string[] = [];
+  const visit = (node: PaneNode) => {
+    if (isLeaf(node)) {
+      if (node.cwd) result.push(node.cwd);
       return;
     }
-    for (const c of n.children) walk(c);
+    node.children.forEach(visit);
   };
-  for (const t of tabs) if (t.kind === "terminal") walk(t.paneTree);
-  return [...set];
+  visit(tab.paneTree);
+  return result;
 }
 
 export function useSpacesBoot({
   ready,
   launchCwd,
-  home,
   allocId,
   replaceTabs,
   markBooted,
-  setActiveSpaceForNewTabs,
+  setActiveProjectForNewTabs,
   adoptWorkspaceEnv,
 }: Params) {
   const done = useRef(false);
@@ -52,71 +68,175 @@ export function useSpacesBoot({
 
     void (async () => {
       try {
-        const { spaces, activeId, states } = await loadAll();
+        const loaded = await loadAll();
+        const bootPlan = planHierarchyBoot({
+          versionMatched: loaded.versionMatched,
+          spaces: loaded.spaces,
+          projects: loaded.projects,
+          activeSpaceId: loaded.activeSpaceId,
+          activeProjectBySpace: loaded.activeProjectBySpace,
+          launchRoot: launchCwd,
+        });
 
-        if (spaces.length === 0) {
-          const root = launchCwd ?? home ?? null;
-          // Hydrate prefs before reading the saved workspace env.
+        if (bootPlan.kind !== "restore") {
           await usePreferencesStore
             .getState()
             .init()
             .catch(() => {});
-          const meta: SpaceMeta = {
+          await resetHierarchy();
+          const now = Date.now();
+          const space: SpaceMeta = {
             id: DEFAULT_SPACE_ID,
             name: "Default",
-            root,
             env: parseWorkspaceScopeKey(
               usePreferencesStore.getState().defaultWorkspaceEnv,
             ),
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
+            createdAt: now,
+            updatedAt: now,
           };
-          await saveSpacesList([meta]);
-          await saveActiveId(DEFAULT_SPACE_ID);
-          setActiveSpaceForNewTabs(DEFAULT_SPACE_ID);
-          useSpaces.getState().hydrate([meta], DEFAULT_SPACE_ID);
+          const projects: ProjectMeta[] = [];
+          const availability: Record<string, ProjectAvailability> = {};
+          const activeProjectBySpace: Record<string, string | null> = {
+            [space.id]: null,
+          };
+          const tabs: Tab[] = [];
+
+          if (bootPlan.kind === "fresh-launch-project") {
+            try {
+              const root = await native.canonicalize(bootPlan.root, space.env);
+              const stat = await native.fileStat(root, space.env);
+              if (stat.kind !== "dir") throw new Error("not a directory");
+              await native.workspaceAuthorize(root, space.env);
+              const project: ProjectMeta = {
+                id: newProjectId(),
+                spaceId: space.id,
+                name: basename(root),
+                root,
+                createdAt: now,
+                updatedAt: now,
+              };
+              projects.push(project);
+              availability[project.id] = "available";
+              activeProjectBySpace[space.id] = project.id;
+              tabs.push(freshTerminalTab(project.id, root, allocId));
+            } catch {
+              activeProjectBySpace[space.id] = null;
+            }
+          }
+
+          await saveSpacesList([space]);
+          await saveProjectsList(projects);
+          await saveActiveSpaceId(space.id);
+          await saveActiveProjects(activeProjectBySpace);
+          useSpaces
+            .getState()
+            .hydrate(
+              [space],
+              projects,
+              space.id,
+              activeProjectBySpace,
+              availability,
+            );
+          const activeProjectId = activeProjectBySpace[space.id];
+          setActiveProjectForNewTabs(activeProjectId);
+          await adoptWorkspaceEnv(space.env);
+          replaceTabs(tabs, tabs[0]?.id ?? null);
           return;
         }
 
-        const restored: Tab[] = [];
-        for (const space of spaces) {
-          const st = states.get(space.id);
-          if (!st) continue;
-          restored.push(...hydrateTabs(st.tabs, space.id, allocId));
+        if (bootPlan.activeSpaceId === null) {
+          useSpaces
+            .getState()
+            .hydrate(loaded.spaces, loaded.projects, null, {});
+          setActiveProjectForNewTabs(null);
+          replaceTabs([], null);
+          return;
         }
 
-        const active =
-          activeId && spaces.some((s) => s.id === activeId)
-            ? activeId
-            : spaces[0].id;
-        setActiveSpaceForNewTabs(active);
+        const activeSpaceId = bootPlan.activeSpaceId;
+        const activeProjectBySpace: Record<string, string | null> = {};
+        for (const space of loaded.spaces) {
+          const selected = loaded.activeProjectBySpace[space.id];
+          activeProjectBySpace[space.id] = loaded.projects.some(
+            (project) =>
+              project.id === selected && project.spaceId === space.id,
+          )
+            ? selected
+            : (loaded.projects.find((project) => project.spaceId === space.id)
+                ?.id ?? null);
+        }
 
-        // Apply the space's env+home before the fresh-tab fallback and spawns
-        // below; env is set synchronously so cwd resolution picks WSL vs local.
-        const env = activeSpaceEnv(spaces, active);
-        const restoredHome = await adoptWorkspaceEnv(env);
+        const availability: Record<string, ProjectAvailability> = {};
+        for (const project of loaded.projects) {
+          const space = loaded.spaces.find(
+            (candidate) => candidate.id === project.spaceId,
+          );
+          if (!space) {
+            availability[project.id] = "unavailable";
+            continue;
+          }
+          try {
+            const root = await native.canonicalize(project.root, space.env);
+            const stat = await native.fileStat(root, space.env);
+            if (stat.kind !== "dir") throw new Error("not a directory");
+            await native.workspaceAuthorize(root, space.env);
+            availability[project.id] = "available";
+          } catch {
+            availability[project.id] = "unavailable";
+          }
+        }
 
-        // Active space must never be empty, else its tab list shows nothing.
-        if (!restored.some((t) => t.spaceId === active)) {
-          const cwd = freshTabCwd(env, restoredHome, launchCwd, home);
-          restored.push(freshTerminalTab(active, cwd, allocId));
+        const restored: Tab[] = [];
+        const initialActiveIndex: Record<string, number | null> = {};
+        for (const project of loaded.projects) {
+          const state = loaded.states.get(project.id);
+          initialActiveIndex[project.id] = state?.activeTabIndex ?? null;
+          if (state)
+            restored.push(...hydrateTabs(state.tabs, project.id, allocId));
         }
 
         await Promise.allSettled(
-          uniqueCwds(restored).map((cwd) => native.workspaceAuthorize(cwd)),
+          restored.flatMap((tab) => {
+            if (availability[tab.projectId] !== "available") return [];
+            const project = loaded.projects.find(
+              (candidate) => candidate.id === tab.projectId,
+            );
+            const space = loaded.spaces.find(
+              (candidate) => candidate.id === project?.spaceId,
+            );
+            if (!space) return [];
+            return terminalCwds(tab).map((cwd) =>
+              native.workspaceAuthorize(cwd, space.env),
+            );
+          }),
         );
 
-        const initialActiveIndex: Record<string, number> = {};
-        for (const [id, st] of states)
-          initialActiveIndex[id] = st.activeTabIndex;
-        useSpaces.getState().hydrate(spaces, active, initialActiveIndex);
-
-        const inActive = restored.filter((t) => t.spaceId === active);
-        const idx = states.get(active)?.activeTabIndex ?? 0;
-        const activeTab = inActive[idx] ?? inActive[0] ?? restored[0];
-        replaceTabs(restored, activeTab.id);
-      } catch (e) {
-        console.error("[terax] spaces boot failed:", e);
+        useSpaces
+          .getState()
+          .hydrate(
+            loaded.spaces,
+            loaded.projects,
+            activeSpaceId,
+            activeProjectBySpace,
+            availability,
+            initialActiveIndex,
+          );
+        const activeProjectId = activeSpaceId
+          ? (activeProjectBySpace[activeSpaceId] ?? null)
+          : null;
+        setActiveProjectForNewTabs(activeProjectId);
+        await adoptWorkspaceEnv(activeSpaceEnv(loaded.spaces, activeSpaceId));
+        replaceTabs(
+          restored,
+          restoredActiveTabId(
+            restored,
+            activeProjectId,
+            availability,
+            initialActiveIndex,
+          ),
+        );
+      } catch (error) {
+        console.error("[terax] spaces boot failed:", error);
       } finally {
         markBooted();
       }
@@ -124,11 +244,10 @@ export function useSpacesBoot({
   }, [
     ready,
     launchCwd,
-    home,
     allocId,
     replaceTabs,
     markBooted,
-    setActiveSpaceForNewTabs,
+    setActiveProjectForNewTabs,
     adoptWorkspaceEnv,
   ]);
 }

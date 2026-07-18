@@ -79,7 +79,7 @@ Each module is self-contained, exports a thin barrel via `index.ts`, and owns it
 - **editor/** - CodeMirror 6 editor with language modes, Vim mode, conflict-checked saves, EOL and indentation preservation, large-file limits, Markdown editing, LSP integration, external format-on-save, Git diff views, and independent editor themes. External formatters run through `shell_run_command`; ordinary CodeMirror completion remains separate from terminal block completion.
 - **explorer/** - file tree with Material/Catppuccin icons (`iconResolver.ts`), fuzzy search, keyboard nav, inline rename, context actions. Backslash-aware `basename`.
 - **preview/** - auto-detected dev-server preview tab (status-bar pill suggests opening when a localhost URL is detected).
-- **tabs/** - `useTabs` is the source of truth for tab list + active id. `useWorkspaceCwd` derives explorer root + inherited cwd for new tabs from active tab. `basename` splits on both `/` and `\`.
+- **tabs/** - tabs remain one global mounted array; every tab has `projectId`. Project and tab ownership cannot transfer. `basename` splits on both `/` and `\`.
 - **header/** - top bar + inline search (`SearchInline` adapts to terminal vs editor via `SearchTarget`). `WindowControls` rendered when `USE_CUSTOM_WINDOW_CONTROLS` is true (Linux + Windows; macOS uses native traffic lights).
 - **statusbar/** - bottom bar and `CwdBreadcrumb` (handles Unix paths, Windows drive letters, and home `~` segments via `pathUtils.segmentsFromCwd`).
 - **shortcuts/** - keymap registry (`shortcuts.ts`) + `useGlobalShortcuts`. Handlers live in `App.tsx` and are passed in by id. `metaKey || ctrlKey` for cross-platform Cmd/Ctrl.
@@ -94,7 +94,7 @@ Each module is self-contained, exports a thin barrel via `index.ts`, and owns it
 - **updater/** - auto-updater UI built on `tauri-plugin-updater`.
 - **agents/** - status and notifications for coding-agent CLIs running inside terminal sessions. `store/agentStore.ts` tracks terminal sessions and notifications; `lib/route.ts` suppresses notifications when focused and visible, uses OS notifications when unfocused, and uses an in-app toast when focused but hidden. Rust-side PTY detection in `pty/agent_detect.rs` consumes recognized OSC 777 markers and emits `terax:agent-signal` transitions. Optional hooks for Claude Code, Codex, and Gemini CLI, plus a managed Pi extension (`~/.pi/agent/extensions/terax-notifications.ts`), are installed through `agent_enable_hooks` / `agent_hooks_status`.
 - **command-palette/** - modal command palette (`CommandPalette.tsx`, `commands.ts`) for actions and navigation.
-- **spaces/** - workspace spaces/projects (name, root, env, color, per-space tab persistence) via `useSpaces` and `SpaceSwitcher`.
+- **spaces/** - owns ordered Space and Project metadata plus version 2 persistence. The selected Project root pins explorer, source control, search, and ordinary new terminals. Unavailable Projects stay cold until located.
 
 ### UI conventions
 

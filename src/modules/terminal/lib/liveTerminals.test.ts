@@ -6,7 +6,7 @@ function term(id: number, over: Partial<Tab> = {}): Tab {
   return {
     id,
     kind: "terminal",
-    spaceId: "s1",
+    projectId: "s1",
     title: "shell",
     paneTree: { kind: "leaf", id: id * 10 },
     activeLeafId: id * 10,
@@ -28,12 +28,12 @@ describe("selectLiveTerminals", () => {
 
   it("keeps warm terminals across spaces and ignores non-terminal kinds", () => {
     const tabs: Tab[] = [
-      term(1, { spaceId: "a" }),
-      term(2, { spaceId: "b" }),
+      term(1, { projectId: "a" }),
+      term(2, { projectId: "b" }),
       {
         id: 3,
         kind: "editor",
-        spaceId: "a",
+        projectId: "a",
         title: "x",
         path: "/x.ts",
         dirty: false,

@@ -4,8 +4,10 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { Toaster } from "@/components/ui/sonner";
+import { toast } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { consumeLaunchFiles, getLaunchDir } from "@/lib/launchDir";
+import { IS_WINDOWS } from "@/lib/platform";
 import { quoteShellArg } from "@/lib/shellQuote";
 import { useZoom } from "@/lib/useZoom";
 import { isMarkdownPath } from "@/lib/utils";
@@ -49,6 +51,11 @@ import {
   useSourceControlContext,
 } from "@/modules/source-control";
 import {
+  activeProjectRoot,
+  deleteProjectData,
+  pathsOverlap,
+  ProjectPathDialog,
+  ProjectStateView,
   SpaceSwitcher,
   useSpacePersistence,
   useSpaces,
@@ -60,9 +67,7 @@ import {
   useTabSwitcher,
   useTabs,
   useWindowTitle,
-  useWorkspaceCwd,
 } from "@/modules/tabs";
-import { DEFAULT_SPACE_ID } from "@/modules/tabs/lib/useTabs";
 import {
   clearFocusedTerminal,
   disposeSession,
@@ -79,7 +84,6 @@ import { ThemeProvider, useThemeFileEditing } from "@/modules/theme";
 import { UpdaterDialog } from "@/modules/updater";
 import { useWorkspaceEnvStore, type WorkspaceEnv } from "@/modules/workspace";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { SearchAddon } from "@xterm/addon-search";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CloseDialogs } from "./components/CloseDialogs";
@@ -89,8 +93,21 @@ import {
 } from "./components/WorkspaceInputBar";
 import { WorkspaceSurface } from "./components/WorkspaceSurface";
 import { useAppCloseGuard } from "./hooks/useAppCloseGuard";
+import { useHierarchyCloseGuard } from "./hooks/useHierarchyCloseGuard";
 import { useTabCloseGuards } from "./hooks/useTabCloseGuards";
 import { useWorkspaceSwitcher } from "./hooks/useWorkspaceSwitcher";
+
+async function resolveProjectDirectory(path: string, env: WorkspaceEnv) {
+  const canonical = await native.canonicalize(path, env);
+  const stat = await native.fileStat(canonical, env);
+  if (stat.kind !== "dir") throw new Error("Project path must be a directory.");
+  return canonical;
+}
+
+function projectName(path: string): string {
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] ?? path;
+}
 
 export default function App() {
   const {
@@ -99,13 +116,11 @@ export default function App() {
     setActiveId,
     allocId,
     replaceTabs,
-    moveTabToSpace,
-    reorderTab,
     reorderTabByGap,
-    newTabInSpace,
-    removeTabsForSpace,
+    newTabInProject,
+    removeTabsForProjects,
     markBooted,
-    setActiveSpaceForNewTabs,
+    setActiveProjectForNewTabs,
     newTab,
     newBlockTab,
     newPrivateTab,
@@ -128,8 +143,8 @@ export default function App() {
     splitActivePane,
     closeActivePane,
     closePaneByLeaf,
-    resetWorkspace,
-  } = useTabs(getLaunchDir() ? { cwd: getLaunchDir() } : undefined);
+    rebaseProjectPaths,
+  } = useTabs();
 
   // Mirror `tabs` into a ref so callbacks scheduled with `setTimeout`
   // (e.g. cdInNewTab) read the latest pane state instead of a stale closure.
@@ -162,95 +177,152 @@ export default function App() {
   // split/unsplit re-mount components but the leaf is still live.
   const liveLeavesRef = useRef<Set<number>>(new Set());
 
-  const clearWorkspaceState = useCallback(() => {
-    for (const id of liveLeavesRef.current) disposeSession(id);
-    searchAddons.current.clear();
-    terminalRefs.current.clear();
-    editorRefs.current.clear();
-    previewRefs.current.clear();
-    setActiveSearchAddon(null);
-    setActiveEditorHandle(null);
-  }, []);
-
   const workspaceEnv = useWorkspaceEnvStore((s) => s.env);
   const setWorkspaceEnv = useWorkspaceEnvStore((s) => s.setEnv);
-  const {
-    home,
-    launchCwd,
-    launchCwdResolved,
-    switchWorkspace,
-    adoptWorkspaceEnv,
-  } = useWorkspaceSwitcher({
-    tabsRef,
-    workspaceEnv,
-    setWorkspaceEnv,
-    resetWorkspace,
-    clearWorkspaceState,
-  });
+  const { home, launchCwdResolved, switchWorkspace, adoptWorkspaceEnv } =
+    useWorkspaceSwitcher({ workspaceEnv, setWorkspaceEnv });
 
-  const activeSpaceId = useSpaces((s) => s.activeId);
-  const spacesHydrated = useSpaces((s) => s.hydrated);
+  const activeSpaceId = useSpaces((state) => state.activeSpaceId);
+  const activeProjectId = useSpaces((state) =>
+    state.activeSpaceId
+      ? (state.activeProjectBySpace[state.activeSpaceId] ?? null)
+      : null,
+  );
+  const projects = useSpaces((state) => state.projects);
+  const activeSpace = useSpaces(
+    (state) => state.spaces.find((space) => space.id === activeSpaceId) ?? null,
+  );
+  const activeProject =
+    projects.find((project) => project.id === activeProjectId) ?? null;
+  const projectAvailability = useSpaces((state) => state.availability);
+  const spacesHydrated = useSpaces((state) => state.hydrated);
+  const projectTabs = useMemo(
+    () => tabs.filter((tab) => tab.projectId === activeProjectId),
+    [tabs, activeProjectId],
+  );
+  const projectTabCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const tab of tabs)
+      counts[tab.projectId] = (counts[tab.projectId] ?? 0) + 1;
+    return counts;
+  }, [tabs]);
+  const activeTab = projectTabs.find((tab) => tab.id === activeId);
+  const projectAvailable =
+    activeProject !== null &&
+    projectAvailability[activeProject.id] === "available";
+  const activeSpaceHasProjects =
+    activeSpaceId !== null &&
+    projects.some((project) => project.spaceId === activeSpaceId);
 
   const handleWorkspaceChange = useCallback(
     async (env: WorkspaceEnv) => {
-      const switched = await switchWorkspace(env);
-      if (switched && activeSpaceId) {
-        useSpaces.getState().setEnv(activeSpaceId, env);
+      if (!activeSpaceId) return;
+      if (
+        useSpaces
+          .getState()
+          .projects.some((project) => project.spaceId === activeSpaceId)
+      ) {
+        return;
       }
+      const switched = await switchWorkspace(env);
+      if (switched) useSpaces.getState().setEnv(activeSpaceId, env);
     },
     [switchWorkspace, activeSpaceId],
   );
 
   useSpacesBoot({
     ready: launchCwdResolved,
-    launchCwd,
-    home,
+    launchCwd: getLaunchDir() ?? null,
     allocId,
     replaceTabs,
     markBooted,
-    setActiveSpaceForNewTabs,
+    setActiveProjectForNewTabs,
     adoptWorkspaceEnv,
   });
 
   useSpacePersistence({
     tabs,
     activeId,
-    activeSpaceId: activeSpaceId ?? DEFAULT_SPACE_ID,
+    activeProjectId,
     enabled: spacesHydrated,
   });
 
-  const prevSpaceRef = useRef(activeSpaceId);
+  const lastActiveTabByProject = useRef(new Map<string, number>());
   useEffect(() => {
-    if (!spacesHydrated || !activeSpaceId) return;
-    setActiveSpaceForNewTabs(activeSpaceId);
-    const prev = prevSpaceRef.current;
-    prevSpaceRef.current = activeSpaceId;
-    if (prev === null || prev === activeSpaceId) return;
-    const meta = useSpaces
-      .getState()
-      .spaces.find((s) => s.id === activeSpaceId);
-    if (meta) void adoptWorkspaceEnv(meta.env);
-    const inSpace = tabsRef.current.filter((t) => t.spaceId === activeSpaceId);
-    if (inSpace.length === 0) return;
-    // Keep the active tab if it already belongs to the newly active space (a
-    // cross-space jump set it explicitly); else fall to the space's last tab.
-    if (inSpace.some((t) => t.id === activeId)) return;
-    setActiveId(inSpace[inSpace.length - 1].id);
+    if (activeProjectId && activeId !== null && activeTab) {
+      lastActiveTabByProject.current.set(activeProjectId, activeId);
+    }
+  }, [activeProjectId, activeId, activeTab]);
+
+  const activeTabForProject = useCallback((projectId: string) => {
+    const owned = tabsRef.current.filter((tab) => tab.projectId === projectId);
+    const remembered = lastActiveTabByProject.current.get(projectId);
+    if (
+      remembered !== undefined &&
+      owned.some((tab) => tab.id === remembered)
+    ) {
+      return remembered;
+    }
+    const index = useSpaces.getState().initialActiveIndex[projectId] ?? 0;
+    return owned[index ?? 0]?.id ?? owned[0]?.id ?? null;
+  }, []);
+
+  const selectProject = useCallback(
+    (projectId: string) => {
+      const state = useSpaces.getState();
+      const project = state.projects.find(
+        (candidate) => candidate.id === projectId,
+      );
+      if (!project) return;
+      state.setActiveSpace(project.spaceId);
+      state.setActiveProject(project.spaceId, project.id);
+      setActiveProjectForNewTabs(project.id);
+      setActiveId(
+        state.availability[project.id] === "available"
+          ? activeTabForProject(project.id)
+          : null,
+      );
+    },
+    [activeTabForProject, setActiveId, setActiveProjectForNewTabs],
+  );
+
+  useEffect(() => {
+    setActiveProjectForNewTabs(activeProjectId);
+    if (!spacesHydrated) return;
+    if (!activeProjectId || !projectAvailable) {
+      setActiveId(null);
+      return;
+    }
+    if (activeTab?.projectId === activeProjectId) return;
+    setActiveId(activeTabForProject(activeProjectId));
   }, [
-    activeSpaceId,
-    activeId,
+    activeProjectId,
+    activeTab,
+    projectAvailable,
     spacesHydrated,
-    setActiveSpaceForNewTabs,
     setActiveId,
-    adoptWorkspaceEnv,
+    setActiveProjectForNewTabs,
+    activeTabForProject,
   ]);
 
-  const [switcherOpen, setSwitcherOpen] = useState(false);
+  useEffect(() => {
+    if (!spacesHydrated || !activeSpaceId) return;
+    const space = useSpaces
+      .getState()
+      .spaces.find((candidate) => candidate.id === activeSpaceId);
+    if (space) void adoptWorkspaceEnv(space.env);
+  }, [activeSpaceId, spacesHydrated, adoptWorkspaceEnv]);
 
-  const spaceTabs = useMemo(
-    () => tabs.filter((t) => t.spaceId === (activeSpaceId ?? DEFAULT_SPACE_ID)),
-    [tabs, activeSpaceId],
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [projectDialog, setProjectDialog] = useState<{
+    mode: "add" | "locate";
+    spaceId: string;
+    projectId?: string;
+  } | null>(null);
+  const [projectDialogError, setProjectDialogError] = useState<string | null>(
+    null,
   );
+  const [projectDialogSubmitting, setProjectDialogSubmitting] = useState(false);
 
   const {
     sidebarRef,
@@ -277,7 +349,6 @@ export default function App() {
     },
     [],
   );
-  const activeTab = tabs.find((t) => t.id === activeId);
   const isTerminalTab = activeTab?.kind === "terminal";
   const isBlockTab = activeTerminalTab?.blocks === true;
   const isEditorTab = activeTab?.kind === "editor";
@@ -286,10 +357,10 @@ export default function App() {
   useEditorFileSync({ tabs, tabsRef, editorRefs });
   useThemeFileEditing({ tabsRef, openFileTab });
 
-  const { explorerRoot, inheritedCwdForNewTab } = useWorkspaceCwd(
-    activeTab,
-    tabs,
-    launchCwd ?? home,
+  const explorerRoot = activeProjectRoot(
+    projects,
+    activeProjectId,
+    projectAvailability,
   );
 
   useWindowTitle(activeTab, explorerRoot);
@@ -300,7 +371,9 @@ export default function App() {
         ? (searchAddons.current.get(activeLeafId) ?? null)
         : null,
     );
-    setActiveEditorHandle(editorRefs.current.get(activeId) ?? null);
+    setActiveEditorHandle(
+      activeId === null ? null : (editorRefs.current.get(activeId) ?? null),
+    );
   }, [activeId, activeLeafId]);
 
   const handleSearchReady = useCallback(
@@ -339,6 +412,12 @@ export default function App() {
 
   const { pendingAppClose, confirmAppClose, cancelAppClose } =
     useAppCloseGuard(tabsRef);
+  const {
+    pendingHierarchyClose,
+    requestHierarchyClose,
+    confirmHierarchyClose,
+    cancelHierarchyClose,
+  } = useHierarchyCloseGuard(tabs);
 
   useEffect(() => {
     const live = new Set<number>();
@@ -359,8 +438,9 @@ export default function App() {
 
   // Most-recently-used tab ids, most recent first, pruned to live tabs. Drives
   // the Ctrl+Tab quick switcher so it cycles by recency, not strip order.
-  const mruRef = useRef<number[]>([activeId]);
+  const mruRef = useRef<number[]>([]);
   useEffect(() => {
+    if (activeId === null) return;
     mruRef.current = [
       activeId,
       ...mruRef.current.filter((id) => id !== activeId),
@@ -372,15 +452,17 @@ export default function App() {
   }, [tabs]);
 
   const getSwitcherOrder = useCallback(() => {
-    const space = activeSpaceId ?? DEFAULT_SPACE_ID;
-    const inSpace = tabsRef.current
-      .filter((t) => t.spaceId === space)
-      .map((t) => t.id);
-    const present = new Set(inSpace);
+    if (!activeProjectId) return [];
+    const owned = tabsRef.current
+      .filter((tab) => tab.projectId === activeProjectId)
+      .map((tab) => tab.id);
+    const present = new Set(owned);
     const ordered = mruRef.current.filter((id) => present.has(id));
-    for (const id of inSpace) if (!ordered.includes(id)) ordered.push(id);
-    return [activeId, ...ordered.filter((id) => id !== activeId)];
-  }, [activeId, activeSpaceId]);
+    for (const id of owned) if (!ordered.includes(id)) ordered.push(id);
+    return activeId === null
+      ? ordered
+      : [activeId, ...ordered.filter((id) => id !== activeId)];
+  }, [activeId, activeProjectId]);
 
   const { state: switcherState, step: stepSwitcher } = useTabSwitcher({
     getOrder: getSwitcherOrder,
@@ -390,24 +472,32 @@ export default function App() {
   });
 
   const cycleSpace = useCallback((delta: 1 | -1) => {
-    const { spaces, activeId: sid, setActive } = useSpaces.getState();
+    const {
+      spaces,
+      activeSpaceId: current,
+      setActiveSpace,
+    } = useSpaces.getState();
     if (spaces.length < 2) return;
-    const idx = spaces.findIndex((s) => s.id === sid);
-    const next = (idx + delta + spaces.length) % spaces.length;
-    setActive(spaces[next].id);
+    const index = spaces.findIndex((space) => space.id === current);
+    const next = (index + delta + spaces.length) % spaces.length;
+    setActiveSpace(spaces[next].id);
   }, []);
 
   const openNewTab = useCallback(() => {
-    newTab(inheritedCwdForNewTab());
-  }, [newTab, inheritedCwdForNewTab]);
+    if (projectAvailable && activeProject) newTab(activeProject.root);
+  }, [projectAvailable, activeProject, newTab]);
 
   const openNewPrivateTab = useCallback(() => {
-    newPrivateTab(inheritedCwdForNewTab());
-  }, [newPrivateTab, inheritedCwdForNewTab]);
+    if (projectAvailable && activeProject) newPrivateTab(activeProject.root);
+  }, [projectAvailable, activeProject, newPrivateTab]);
 
   const openNewBlockTab = useCallback(() => {
-    newBlockTab(inheritedCwdForNewTab());
-  }, [newBlockTab, inheritedCwdForNewTab]);
+    if (projectAvailable && activeProject) newBlockTab(activeProject.root);
+  }, [projectAvailable, activeProject, newBlockTab]);
+
+  const openNewEditor = useCallback(() => {
+    if (projectAvailable) setNewEditorOpen(true);
+  }, [projectAvailable]);
 
   const sendCd = useCallback(
     (path: string) => {
@@ -425,7 +515,7 @@ export default function App() {
       const tabId = newTab(path);
       setTimeout(() => {
         const tab = tabsRef.current.find((x) => x.id === tabId);
-        if (!tab || tab.kind !== "terminal") return;
+        if (tab?.kind !== "terminal") return;
         const t = terminalRefs.current.get(tab.activeLeafId);
         if (!t) return;
         t.write(`cd ${quoteShellArg(path)}\r`);
@@ -446,22 +536,40 @@ export default function App() {
     [openFileTab, newMarkdownTab],
   );
 
-  // "Open With" files arrive via the event (warm start) and get_launch_files
-  // (cold start, before this listener attaches). Backend already authorized
-  // each parent; openFileTab dedupes by path, so both paths can't double-open.
+  const [pendingLaunchFiles, setPendingLaunchFiles] = useState<string[]>([]);
   useEffect(() => {
     let unlisten: (() => void) | undefined;
-    const openAll = (paths: string[]) => {
-      for (const path of paths) handleOpenFile(path, true);
+    const queue = (paths: string[]) => {
+      if (paths.length > 0) {
+        setPendingLaunchFiles((current) => [...current, ...paths]);
+      }
     };
-    (async () => {
-      unlisten = await listen<string[]>("terax:open-file", (e) => {
-        openAll(e.payload);
-      });
-      openAll(await consumeLaunchFiles());
-    })();
+    void listen<string[]>("terax:open-file", (event) =>
+      queue(event.payload),
+    ).then((stop) => {
+      unlisten = stop;
+    });
+    void consumeLaunchFiles().then(queue);
     return () => unlisten?.();
-  }, [handleOpenFile]);
+  }, []);
+
+  useEffect(() => {
+    if (!spacesHydrated || pendingLaunchFiles.length === 0) return;
+    if (!activeProjectId || !projectAvailable) {
+      toast.error("Open a Project before opening files.");
+    } else {
+      for (const path of pendingLaunchFiles) handleOpenFile(path, true);
+    }
+    setPendingLaunchFiles((current) =>
+      current.slice(pendingLaunchFiles.length),
+    );
+  }, [
+    spacesHydrated,
+    pendingLaunchFiles,
+    activeProjectId,
+    projectAvailable,
+    handleOpenFile,
+  ]);
 
   const handlePathRenamed = useCallback(
     (from: string, to: string) => {
@@ -512,14 +620,7 @@ export default function App() {
       : null;
   const { sourceControl, toggleSourceControl, openGitGraphFromContext } =
     useSourceControlContext({
-      activeTab,
-      tabs,
-      activeTerminalLeafCwd,
-      explorerRoot,
-      launchCwd,
-      launchCwdResolved,
-      home,
-      sidebarView,
+      projectRoot: explorerRoot,
       cycleSidebarView,
       openCommitHistoryTab,
     });
@@ -531,7 +632,7 @@ export default function App() {
     (url: string) => {
       const id = newPreviewTab(url);
       // Focus the address bar if the URL is empty so the user can type.
-      if (!url) {
+      if (!url && id !== null) {
         setTimeout(() => previewRefs.current.get(id)?.focusAddressBar(), 0);
       }
       return id;
@@ -541,8 +642,9 @@ export default function App() {
 
   const splitActivePaneInActiveTab = useCallback(
     (dir: "row" | "col") => {
+      if (activeId === null) return;
       const t = tabsRef.current.find((x) => x.id === activeId);
-      if (!t || t.kind !== "terminal") return;
+      if (t?.kind !== "terminal") return;
       splitActivePane(activeId, dir);
     },
     [activeId, splitActivePane],
@@ -565,12 +667,14 @@ export default function App() {
 
   const swapActivePane = useCallback(
     (direction: "left" | "right" | "up" | "down") => {
+      if (activeId === null) return;
       swapActivePaneInDirection(activeId, direction, livePaneBounds(activeId));
     },
     [activeId, livePaneBounds, swapActivePaneInDirection],
   );
 
   const handleCloseTabOrPane = useCallback(() => {
+    if (activeId === null) return;
     const t = tabsRef.current.find((x) => x.id === activeId);
     if (t?.kind === "terminal" && leafIds(t.paneTree).length > 1) {
       closeActivePane(activeId);
@@ -581,18 +685,23 @@ export default function App() {
 
   const [zenMode, setZenMode] = useState(false);
 
-  // Focus an agent's tab, switching to its space first so the header and tab
-  // strip don't end up showing a different space than the focused pane.
   const activateAgentTarget = useCallback(
     (tabId: number, leafId: number) => {
-      const space = tabsRef.current.find((t) => t.id === tabId)?.spaceId;
-      if (space && space !== useSpaces.getState().activeId) {
-        useSpaces.getState().setActive(space);
+      const projectId = tabsRef.current.find(
+        (tab) => tab.id === tabId,
+      )?.projectId;
+      const project = useSpaces
+        .getState()
+        .projects.find((candidate) => candidate.id === projectId);
+      if (project) {
+        useSpaces.getState().setActiveSpace(project.spaceId);
+        useSpaces.getState().setActiveProject(project.spaceId, project.id);
+        setActiveProjectForNewTabs(project.id);
       }
       setActiveId(tabId);
       focusPane(tabId, leafId);
     },
-    [setActiveId, focusPane],
+    [setActiveId, focusPane, setActiveProjectForNewTabs],
   );
 
   const shortcutHandlers = useMemo<ShortcutHandlers>(
@@ -603,22 +712,26 @@ export default function App() {
       "tab.newBlock": openNewBlockTab,
       "tab.newPrivate": openNewPrivateTab,
       "tab.newPreview": () => openPreviewTab(""),
-      "tab.newEditor": () => setNewEditorOpen(true),
+      "tab.newEditor": openNewEditor,
       "tab.close": handleCloseTabOrPane,
       "tab.next": () => stepSwitcher(1),
       "tab.prev": () => stepSwitcher(-1),
-      "tab.selectByIndex": (e) =>
-        selectByIndex(
-          parseInt(e.key, 10) - 1,
-          activeSpaceId ?? DEFAULT_SPACE_ID,
-        ),
+      "tab.selectByIndex": (e) => {
+        if (activeProjectId) {
+          selectByIndex(parseInt(e.key, 10) - 1, activeProjectId);
+        }
+      },
       "space.next": () => cycleSpace(1),
       "space.prev": () => cycleSpace(-1),
       "space.overview": () => setSwitcherOpen(true),
       "pane.splitRight": () => splitActivePaneInActiveTab("row"),
       "pane.splitDown": () => splitActivePaneInActiveTab("col"),
-      "pane.focusNext": () => focusNextPaneInTab(activeId, 1),
-      "pane.focusPrev": () => focusNextPaneInTab(activeId, -1),
+      "pane.focusNext": () => {
+        if (activeId !== null) focusNextPaneInTab(activeId, 1);
+      },
+      "pane.focusPrev": () => {
+        if (activeId !== null) focusNextPaneInTab(activeId, -1);
+      },
       "pane.swapLeft": () => swapActivePane("left"),
       "pane.swapRight": () => swapActivePane("right"),
       "pane.swapUp": () => swapActivePane("up"),
@@ -632,7 +745,8 @@ export default function App() {
       "blocks.prev": () => navigateFocusedBlocks(-1),
       "blocks.next": () => navigateFocusedBlocks(1),
       "search.focus": () => {
-        const editor = editorRefs.current.get(activeId);
+        const editor =
+          activeId === null ? undefined : editorRefs.current.get(activeId);
         if (editor) editor.openSearch();
         else searchInlineRef.current?.focus();
       },
@@ -647,8 +761,12 @@ export default function App() {
       "view.zoomOut": zoomOut,
       "view.zoomReset": zoomReset,
       "view.zenMode": () => setZenMode((v) => !v),
-      "editor.undo": () => editorRefs.current.get(activeId)?.undo(),
-      "editor.redo": () => editorRefs.current.get(activeId)?.redo(),
+      "editor.undo": () => {
+        if (activeId !== null) editorRefs.current.get(activeId)?.undo();
+      },
+      "editor.redo": () => {
+        if (activeId !== null) editorRefs.current.get(activeId)?.redo();
+      },
     }),
     [
       activeId,
@@ -659,8 +777,9 @@ export default function App() {
       openNewTab,
       openNewBlockTab,
       openNewPrivateTab,
+      openNewEditor,
       openPreviewTab,
-      activeSpaceId,
+      activeProjectId,
       selectByIndex,
       splitActivePaneInActiveTab,
       focusNextPaneInTab,
@@ -762,8 +881,19 @@ export default function App() {
     (leafId: number, cwd: string) => {
       setLeafCwd(leafId, cwd);
       if (cwd && !authorizedCwds.current.has(cwd)) {
+        const tab = tabsRef.current.find(
+          (candidate) =>
+            candidate.kind === "terminal" &&
+            hasLeaf(candidate.paneTree, leafId),
+        );
+        const project = useSpaces
+          .getState()
+          .projects.find((candidate) => candidate.id === tab?.projectId);
+        const space = useSpaces
+          .getState()
+          .spaces.find((candidate) => candidate.id === project?.spaceId);
         authorizedCwds.current.add(cwd);
-        native.workspaceAuthorize(cwd).catch(() => {
+        native.workspaceAuthorize(cwd, space?.env).catch(() => {
           authorizedCwds.current.delete(cwd);
         });
       }
@@ -784,13 +914,8 @@ export default function App() {
       const tab = all.find(
         (t) => t.kind === "terminal" && hasLeaf(t.paneTree, leafId),
       );
-      if (!tab || tab.kind !== "terminal") return;
-      // Last pane of the last tab: quit instead of respawning a shell.
-      if (leafIds(tab.paneTree).length === 1 && all.length === 1) {
-        void getCurrentWindow().close();
-      } else {
-        closePaneByLeaf(leafId);
-      }
+      if (tab?.kind !== "terminal") return;
+      closePaneByLeaf(leafId);
     },
     [closePaneByLeaf],
   );
@@ -837,84 +962,214 @@ export default function App() {
 
   const activeCwd = activeTerminalLeafCwd;
 
+  const openAddProject = useCallback((spaceId: string) => {
+    setProjectDialogError(null);
+    setProjectDialog({ mode: "add", spaceId });
+    setSwitcherOpen(false);
+  }, []);
+
+  const openLocateProject = useCallback((projectId: string) => {
+    const project = useSpaces
+      .getState()
+      .projects.find((candidate) => candidate.id === projectId);
+    if (!project) return;
+    setProjectDialogError(null);
+    setProjectDialog({ mode: "locate", spaceId: project.spaceId, projectId });
+    setSwitcherOpen(false);
+  }, []);
+
+  const browseProjectFolder = useCallback(async () => {
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const selected = await open({ directory: true, multiple: false });
+      return typeof selected === "string" ? selected : null;
+    } catch (error) {
+      setProjectDialogError(String(error));
+      return null;
+    }
+  }, []);
+
+  const submitProjectPath = useCallback(
+    async (path: string) => {
+      if (!projectDialog) return;
+      const state = useSpaces.getState();
+      const space = state.spaces.find(
+        (candidate) => candidate.id === projectDialog.spaceId,
+      );
+      const relocating = projectDialog.projectId
+        ? state.projects.find(
+            (candidate) => candidate.id === projectDialog.projectId,
+          )
+        : null;
+      if (!space || (projectDialog.mode === "locate" && !relocating)) return;
+
+      setProjectDialogSubmitting(true);
+      setProjectDialogError(null);
+      try {
+        const canonical = await resolveProjectDirectory(path, space.env);
+        const caseInsensitive = space.env.kind === "local" && IS_WINDOWS;
+        const overlaps = state.projects
+          .filter(
+            (project) =>
+              project.spaceId === space.id && project.id !== relocating?.id,
+          )
+          .some((project) =>
+            pathsOverlap(project.root, canonical, caseInsensitive),
+          );
+        if (overlaps) {
+          throw new Error(
+            "This folder overlaps an existing Project in this Space.",
+          );
+        }
+        await native.workspaceAuthorize(canonical, space.env);
+        await adoptWorkspaceEnv(space.env);
+
+        if (relocating) {
+          rebaseProjectPaths(
+            relocating.id,
+            relocating.root,
+            canonical,
+            caseInsensitive,
+          );
+          state.relocateProject(relocating.id, canonical);
+          state.setProjectAvailability(relocating.id, "available");
+          selectProject(relocating.id);
+        } else {
+          const project = state.createProject({
+            spaceId: space.id,
+            name: projectName(canonical),
+            root: canonical,
+          });
+          state.setActiveSpace(space.id);
+          state.setActiveProject(space.id, project.id);
+          state.setProjectAvailability(project.id, "available");
+          setActiveProjectForNewTabs(project.id);
+          setActiveId(newTabInProject(project.id, project.root));
+        }
+        setProjectDialog(null);
+      } catch (error) {
+        setProjectDialogError(
+          error instanceof Error ? error.message : String(error),
+        );
+      } finally {
+        setProjectDialogSubmitting(false);
+      }
+    },
+    [
+      projectDialog,
+      adoptWorkspaceEnv,
+      newTabInProject,
+      rebaseProjectPaths,
+      selectProject,
+      setActiveId,
+      setActiveProjectForNewTabs,
+    ],
+  );
+
+  const removeProjectConfirmed = useCallback(
+    async (projectId: string) => {
+      removeTabsForProjects([projectId]);
+      await deleteProjectData(projectId);
+      const next = useSpaces.getState().removeProjectMetadata(projectId);
+      if (next) selectProject(next);
+      else {
+        setActiveProjectForNewTabs(null);
+        setActiveId(null);
+      }
+    },
+    [
+      removeTabsForProjects,
+      selectProject,
+      setActiveId,
+      setActiveProjectForNewTabs,
+    ],
+  );
+
   const handleNewSpace = useCallback(() => {
-    const { spaces, create, setActive } = useSpaces.getState();
-    const meta = create({
+    const { spaces, createSpace, setActiveSpace, setActiveProject } =
+      useSpaces.getState();
+    const space = createSpace({
       name: `Space ${spaces.length + 1}`,
-      root: activeCwd ?? home ?? null,
       env: workspaceEnv,
     });
-    setActiveSpaceForNewTabs(meta.id);
-    newTab(activeCwd ?? undefined);
-    setActive(meta.id);
-    return meta.id;
-  }, [activeCwd, home, workspaceEnv, newTab, setActiveSpaceForNewTabs]);
+    setActiveSpace(space.id);
+    setActiveProject(space.id, null);
+    setActiveProjectForNewTabs(null);
+    setActiveId(null);
+    return space.id;
+  }, [workspaceEnv, setActiveId, setActiveProjectForNewTabs]);
 
-  const handleDeleteSpace = useCallback(
-    (id: string) => {
-      const nextSpaceId = useSpaces.getState().remove(id);
-      if (!nextSpaceId) return;
-      const root = useSpaces
+  const deleteSpaceConfirmed = useCallback(
+    async (id: string) => {
+      const projectIds = useSpaces
         .getState()
-        .spaces.find((s) => s.id === nextSpaceId)?.root;
-      removeTabsForSpace(id, nextSpaceId, root ?? undefined);
+        .projects.filter((project) => project.spaceId === id)
+        .map((project) => project.id);
+      removeTabsForProjects(projectIds);
+      await Promise.all(projectIds.map(deleteProjectData));
+      useSpaces.getState().removeSpaceMetadata(id);
     },
-    [removeTabsForSpace],
+    [removeTabsForProjects],
   );
 
-  const handleMoveTab = useCallback(
-    (tabId: number, targetSpaceId: string) => {
-      if (moveTabToSpace(tabId, targetSpaceId)) {
-        useSpaces.getState().setActive(targetSpaceId);
-      }
+  const requestProjectRemoval = useCallback(
+    (projectId: string) => {
+      const project = useSpaces
+        .getState()
+        .projects.find((candidate) => candidate.id === projectId);
+      if (!project) return;
+      const tabIds = tabsRef.current
+        .filter((tab) => tab.projectId === projectId)
+        .map((tab) => tab.id);
+      void requestHierarchyClose(
+        {
+          kind: "project",
+          id: project.id,
+          name: project.name,
+          tabIds,
+        },
+        () => removeProjectConfirmed(project.id),
+      );
     },
-    [moveTabToSpace],
+    [removeProjectConfirmed, requestHierarchyClose],
   );
 
-  const handleReorderTab = useCallback(
-    (tabId: number, targetTabId: number, edge: "top" | "bottom") => {
-      if (reorderTab(tabId, targetTabId, edge)) {
-        const target = tabsRef.current.find((x) => x.id === targetTabId);
-        if (target) useSpaces.getState().setActive(target.spaceId);
-      }
-    },
-    [reorderTab],
-  );
-
-  const handleNewTabInSpace = useCallback(
+  const requestSpaceDeletion = useCallback(
     (spaceId: string) => {
-      const root = useSpaces
-        .getState()
-        .spaces.find((s) => s.id === spaceId)?.root;
-      newTabInSpace(spaceId, root ?? undefined);
+      const state = useSpaces.getState();
+      const space = state.spaces.find((candidate) => candidate.id === spaceId);
+      if (!space) return;
+      const projectIds = new Set(
+        state.projects
+          .filter((project) => project.spaceId === spaceId)
+          .map((project) => project.id),
+      );
+      const tabIds = tabsRef.current
+        .filter((tab) => projectIds.has(tab.projectId))
+        .map((tab) => tab.id);
+      void requestHierarchyClose(
+        { kind: "space", id: space.id, name: space.name, tabIds },
+        () => deleteSpaceConfirmed(space.id),
+      );
     },
-    [newTabInSpace],
-  );
-
-  const jumpToTab = useCallback(
-    (tabId: number) => {
-      const t = tabsRef.current.find((x) => x.id === tabId);
-      if (!t) return;
-      setActiveId(tabId);
-      useSpaces.getState().setActive(t.spaceId);
-      setSwitcherOpen(false);
-    },
-    [setActiveId],
+    [deleteSpaceConfirmed, requestHierarchyClose],
   );
 
   const spaceSwitcher = (
     <SpaceSwitcher
       open={switcherOpen}
       onOpenChange={setSwitcherOpen}
-      tabs={tabs}
       onNewSpace={() => void handleNewSpace()}
-      onDeleteSpace={handleDeleteSpace}
-      onNewTabInSpace={handleNewTabInSpace}
-      onJumpTab={jumpToTab}
-      onCloseTab={handleClose}
-      onMoveTabToSpace={handleMoveTab}
-      onReorderTab={handleReorderTab}
-      onReorderSpaces={(ids) => useSpaces.getState().reorder(ids)}
+      onDeleteSpace={requestSpaceDeletion}
+      onAddProject={openAddProject}
+      onLocateProject={openLocateProject}
+      onRemoveProject={requestProjectRemoval}
+      onSelectProject={selectProject}
+      projectTabCounts={projectTabCounts}
+      onReorderSpaces={(ids) => useSpaces.getState().reorderSpaces(ids)}
+      onReorderProjects={(spaceId, ids) =>
+        useSpaces.getState().reorderProjects(spaceId, ids)
+      }
     />
   );
 
@@ -926,11 +1181,10 @@ export default function App() {
             activeId,
             searchTarget,
             explorerRoot,
-            home,
             openNewTab,
             openNewBlock: openNewBlockTab,
             openNewPrivate: openNewPrivateTab,
-            openNewEditor: () => setNewEditorOpen(true),
+            openNewEditor,
             openNewPreview: () => openPreviewTab(""),
             openGitGraph: openGitGraphFromContext,
             toggleSourceControl,
@@ -944,9 +1198,14 @@ export default function App() {
             openKeyboardShortcuts: () => void openSettingsWindow("shortcuts"),
             spaces: useSpaces.getState().spaces,
             activeSpaceId,
+            projects: projects.filter(
+              (project) => project.spaceId === activeSpaceId,
+            ),
+            activeProjectId,
             openSpacesOverview: () => setSwitcherOpen(true),
             newSpace: () => void handleNewSpace(),
-            switchSpace: (id) => useSpaces.getState().setActive(id),
+            switchSpace: (id) => useSpaces.getState().setActiveSpace(id),
+            switchProject: selectProject,
           })
         : [],
     [
@@ -955,10 +1214,10 @@ export default function App() {
       activeId,
       searchTarget,
       explorerRoot,
-      home,
       openNewTab,
       openNewBlockTab,
       openNewPrivateTab,
+      openNewEditor,
       openPreviewTab,
       openGitGraphFromContext,
       toggleSourceControl,
@@ -966,6 +1225,9 @@ export default function App() {
       splitActivePaneInActiveTab,
       toggleSidebar,
       activeSpaceId,
+      activeProjectId,
+      projects,
+      selectProject,
       handleNewSpace,
     ],
   );
@@ -1004,14 +1266,14 @@ export default function App() {
         <div className="relative flex h-screen flex-col overflow-hidden bg-background text-foreground">
           {!zenMode && (
             <Header
-              tabs={spaceTabs}
+              tabs={projectTabs}
               activeId={activeId}
               onSelect={setActiveId}
               onNew={openNewTab}
               onNewBlock={openNewBlockTab}
               onNewPrivate={openNewPrivateTab}
               onNewPreview={() => openPreviewTab("")}
-              onNewEditor={() => setNewEditorOpen(true)}
+              onNewEditor={openNewEditor}
               onNewGitGraph={openGitGraphFromContext}
               onClose={handleClose}
               onPin={pinTab}
@@ -1024,6 +1286,7 @@ export default function App() {
               spaceSwitcher={spaceSwitcher}
               searchTarget={searchTarget}
               searchRef={searchInlineRef}
+              creationDisabled={!projectAvailable}
               onOverrideLanguage={setOverrideLanguage}
             />
           )}
@@ -1094,6 +1357,22 @@ export default function App() {
                       tabs={tabs}
                       activeId={activeId}
                       activeTab={activeTab}
+                      hierarchyState={
+                        <ProjectStateView
+                          activeSpace={activeSpace}
+                          activeProject={activeProject}
+                          availability={
+                            activeProject
+                              ? (projectAvailability[activeProject.id] ?? null)
+                              : null
+                          }
+                          onCreateSpace={() => void handleNewSpace()}
+                          onAddProject={openAddProject}
+                          onNewTerminal={openNewTab}
+                          onLocateProject={openLocateProject}
+                          onRemoveProject={requestProjectRemoval}
+                        />
+                      }
                       registerTerminalHandle={registerTerminalHandle}
                       onSearchReady={handleSearchReady}
                       onCwd={handleTerminalCwd}
@@ -1128,6 +1407,7 @@ export default function App() {
               home={home}
               onCd={sendCd}
               onWorkspaceChange={handleWorkspaceChange}
+              workspaceEnvDisabled={activeSpaceHasProjects}
               privateActive={
                 activeTab?.kind === "terminal" && activeTab.private === true
               }
@@ -1142,7 +1422,7 @@ export default function App() {
           <Toaster position="bottom-right" />
 
           {switcherState && (
-            <TabSwitcherHud tabs={spaceTabs} state={switcherState} />
+            <TabSwitcherHud tabs={projectTabs} state={switcherState} />
           )}
 
           <CommandPalette
@@ -1155,10 +1435,43 @@ export default function App() {
             insertCommand={insertHistoryCommand}
           />
 
+          <ProjectPathDialog
+            open={projectDialog !== null}
+            mode={projectDialog?.mode ?? "add"}
+            spaceName={
+              useSpaces
+                .getState()
+                .spaces.find((space) => space.id === projectDialog?.spaceId)
+                ?.name ?? "Space"
+            }
+            allowBrowse={
+              useSpaces
+                .getState()
+                .spaces.find((space) => space.id === projectDialog?.spaceId)
+                ?.env.kind === "local"
+            }
+            initialPath={
+              projectDialog?.projectId
+                ? useSpaces
+                    .getState()
+                    .projects.find(
+                      (project) => project.id === projectDialog.projectId,
+                    )?.root
+                : undefined
+            }
+            error={projectDialogError}
+            submitting={projectDialogSubmitting}
+            onOpenChange={(open) => {
+              if (!open && !projectDialogSubmitting) setProjectDialog(null);
+            }}
+            onBrowse={browseProjectFolder}
+            onSubmit={submitProjectPath}
+          />
+
           <NewEditorDialog
             open={newEditorOpen}
             onOpenChange={setNewEditorOpen}
-            rootPath={explorerRoot ?? home}
+            rootPath={explorerRoot}
             onCreated={(path) => openFileTab(path)}
           />
 
@@ -1178,6 +1491,9 @@ export default function App() {
             pendingAppClose={pendingAppClose}
             onCancelAppClose={cancelAppClose}
             onConfirmAppClose={confirmAppClose}
+            pendingHierarchyClose={pendingHierarchyClose}
+            onCancelHierarchyClose={cancelHierarchyClose}
+            onConfirmHierarchyClose={() => void confirmHierarchyClose()}
           />
         </div>
       </TooltipProvider>

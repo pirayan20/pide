@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { reorderTabsByGap, type Tab } from "./useTabs";
 
-function term(id: number, spaceId: string): Tab {
+function term(id: number, projectId: string): Tab {
   return {
     id,
     kind: "terminal",
-    spaceId,
+    projectId,
     title: "shell",
     paneTree: { kind: "leaf", id: id * 10 },
     activeLeafId: id * 10,
@@ -36,7 +36,7 @@ describe("reorderTabsByGap", () => {
     expect(ids(reorderTabsByGap(tabs, 1, 1))).toEqual([1, 2, 3]);
   });
 
-  it("reorders within a space without disturbing other spaces", () => {
+  it("reorders within a Project without disturbing other Projects", () => {
     const tabs = [term(1, "a"), term(2, "b"), term(3, "a"), term(4, "b")];
     expect(ids(reorderTabsByGap(tabs, 1, 2))).toEqual([2, 3, 1, 4]);
   });

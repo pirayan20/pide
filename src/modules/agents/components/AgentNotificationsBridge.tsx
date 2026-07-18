@@ -11,7 +11,7 @@ import { useAgentStore } from "../store/agentStore";
 type Activate = (tabId: number, leafId: number) => void;
 type Ctx = {
   tabs: Tab[];
-  activeId: number;
+  activeId: number | null;
   focused: boolean;
   onActivate: Activate;
 };
@@ -110,7 +110,7 @@ export function AgentNotificationsBridge({
   onActivate,
 }: {
   tabs: Tab[];
-  activeId: number;
+  activeId: number | null;
   onActivate: Activate;
 }) {
   const focused = useWindowFocus();

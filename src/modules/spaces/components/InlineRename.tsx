@@ -6,6 +6,7 @@ type Props = {
   onCommit: (value: string) => void;
   onCancel: () => void;
   className?: string;
+  ariaLabel?: string;
 };
 
 export function InlineRename({
@@ -13,6 +14,7 @@ export function InlineRename({
   onCommit,
   onCancel,
   className,
+  ariaLabel = "Rename Space",
 }: Props) {
   const ref = useRef<HTMLInputElement>(null);
   const done = useRef(false);
@@ -35,7 +37,7 @@ export function InlineRename({
     <input
       ref={ref}
       defaultValue={initial}
-      aria-label="Rename space"
+      aria-label={ariaLabel}
       className={cn(
         "w-full min-w-0 rounded-sm bg-background px-1.5 py-0.5 text-xs text-foreground outline-none ring-1 ring-border focus:ring-ring",
         className,

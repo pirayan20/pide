@@ -8,7 +8,7 @@ import type { TerminalPaneHandle } from "./TerminalPane";
 
 type Props = {
   tabs: Tab[];
-  activeId: number;
+  activeId: number | null;
   /** Register/unregister handle by leaf id (not tab id). */
   registerHandle: (leafId: number, handle: TerminalPaneHandle | null) => void;
   onSearchReady: (leafId: number, addon: SearchAddon) => void;

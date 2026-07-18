@@ -1,7 +1,6 @@
-import { type RefObject, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { homeDir } from "@tauri-apps/api/path";
 import { native } from "@/lib/native";
-import type { Tab } from "@/modules/tabs";
 import {
   getWslHome,
   LOCAL_WORKSPACE,
@@ -15,25 +14,13 @@ async function resolveEnvHome(env: WorkspaceEnv): Promise<string> {
 }
 
 type Params = {
-  tabsRef: RefObject<Tab[]>;
   workspaceEnv: WorkspaceEnv;
   setWorkspaceEnv: (env: WorkspaceEnv) => void;
-  resetWorkspace: (home?: string) => void;
-  /** Dispose live sessions and clear App-owned pane/handle ref maps. */
-  clearWorkspaceState: () => void;
 };
 
-/**
- * Owns the resolved home / launch cwd. switchWorkspace runs an interactive
- * local⇄WSL switch (tears down sessions, re-authorizes home, resets tabs);
- * adoptWorkspaceEnv applies a space's env + home on restore, without teardown.
- */
 export function useWorkspaceSwitcher({
-  tabsRef,
   workspaceEnv,
   setWorkspaceEnv,
-  resetWorkspace,
-  clearWorkspaceState,
 }: Params) {
   const [home, setHome] = useState<string | null>(null);
   const [launchCwd, setLaunchCwd] = useState<string | null>(null);
@@ -41,14 +28,10 @@ export function useWorkspaceSwitcher({
 
   useEffect(() => {
     homeDir()
-      .then(async (p) => {
-        const normalized = p.replace(/\\/g, "/");
+      .then(async (path) => {
+        const normalized = path.replace(/\\/g, "/");
         setHome(normalized);
-        try {
-          await native.workspaceAuthorize(normalized);
-        } catch {
-          // Bootstrap already authorizes home from Rust; ignore.
-        }
+        await native.workspaceAuthorize(normalized).catch(() => {});
       })
       .catch(() => setHome(null));
   }, []);
@@ -63,11 +46,10 @@ export function useWorkspaceSwitcher({
 
   const authorizeHome = useCallback(async (nextHome: string) => {
     setHome(nextHome);
-    setLaunchCwd(nextHome);
     try {
       await native.workspaceAuthorize(nextHome);
     } catch {
-      // Non-fatal — git panel will surface "not authorized" if needed.
+      return;
     }
   }, []);
 
@@ -80,49 +62,29 @@ export function useWorkspaceSwitcher({
       ) {
         return false;
       }
-      const dirty = tabsRef.current.some((t) => t.kind === "editor" && t.dirty);
-      if (dirty) {
-        window.alert(
-          "Save or close unsaved editor tabs before switching workspace.",
-        );
-        return false;
-      }
-
-      let nextHome: string;
       try {
-        nextHome = await resolveEnvHome(env);
-      } catch (e) {
-        window.alert(String(e));
+        const nextHome = await resolveEnvHome(env);
+        setWorkspaceEnv(env.kind === "local" ? LOCAL_WORKSPACE : env);
+        await authorizeHome(nextHome);
+        return true;
+      } catch (error) {
+        window.alert(String(error));
         return false;
       }
-
-      clearWorkspaceState();
-      setWorkspaceEnv(env.kind === "local" ? LOCAL_WORKSPACE : env);
-      await authorizeHome(nextHome);
-      resetWorkspace(nextHome);
-      return true;
     },
-    [
-      workspaceEnv,
-      setWorkspaceEnv,
-      resetWorkspace,
-      tabsRef,
-      clearWorkspaceState,
-      authorizeHome,
-    ],
+    [workspaceEnv, setWorkspaceEnv, authorizeHome],
   );
 
   const adoptWorkspaceEnv = useCallback(
     async (env: WorkspaceEnv): Promise<string | null> => {
       setWorkspaceEnv(env.kind === "local" ? LOCAL_WORKSPACE : env);
-      let nextHome: string;
       try {
-        nextHome = await resolveEnvHome(env);
+        const nextHome = await resolveEnvHome(env);
+        await authorizeHome(nextHome);
+        return nextHome;
       } catch {
         return null;
       }
-      await authorizeHome(nextHome);
-      return nextHome;
     },
     [setWorkspaceEnv, authorizeHome],
   );

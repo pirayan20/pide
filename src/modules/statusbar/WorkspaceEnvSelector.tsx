@@ -16,9 +16,10 @@ import { HugeiconsIcon } from "@hugeicons/react";
 
 type Props = {
   onSelect: (env: WorkspaceEnv) => void;
+  disabled?: boolean;
 };
 
-export function WorkspaceEnvSelector({ onSelect }: Props) {
+export function WorkspaceEnvSelector({ onSelect, disabled }: Props) {
   if (!IS_WINDOWS) return null;
 
   const env = useWorkspaceEnvStore((s) => s.env);
@@ -28,7 +29,7 @@ export function WorkspaceEnvSelector({ onSelect }: Props) {
   const refreshDistros = useWorkspaceEnvStore((s) => s.refreshDistros);
 
   const handleOpenChange = (open: boolean) => {
-    if (open && distros.length === 0 && !loading) {
+    if (open && !disabled && distros.length === 0 && !loading) {
       void refreshDistros();
     }
   };
@@ -40,8 +41,13 @@ export function WorkspaceEnvSelector({ onSelect }: Props) {
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="flex h-6 shrink-0 items-center gap-1 rounded-sm px-1.5 text-[11px] text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus:outline-none focus-visible:outline-none focus-visible:ring-0 data-[state=open]:bg-accent data-[state=open]:text-foreground"
-          title="Workspace environment"
+          disabled={disabled}
+          className="flex h-6 shrink-0 items-center gap-1 rounded-sm px-1.5 text-[11px] text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus:outline-none focus-visible:outline-none focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-50 data-[state=open]:bg-accent data-[state=open]:text-foreground"
+          title={
+            disabled
+              ? "Remove Projects before changing environment"
+              : "Workspace environment"
+          }
         >
           <HugeiconsIcon
             icon={ServerStack03Icon}
