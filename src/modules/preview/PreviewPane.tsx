@@ -109,7 +109,15 @@ export const PreviewPane = forwardRef<PreviewPaneHandle, Props>(
                 // `allow-top-navigation*` — without it the iframe cannot
                 // navigate the parent Tauri webview to an attacker origin,
                 // which would otherwise expose `window.__TAURI__` IPC.
-                sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
+                // ponytail: local file previews (convertFileSrc → asset URL)
+                // drop `allow-same-origin` — the asset protocol scope is ["**"],
+                // so a same-origin asset page's JS could fetch any file on disk
+                // and exfiltrate it. Subresources still load; only fetch/storage break.
+                sandbox={
+                  /^asset:/i.test(url) || url.includes("asset.localhost")
+                    ? "allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
+                    : "allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
+                }
                 referrerPolicy="no-referrer"
                 allow="clipboard-read; clipboard-write; fullscreen"
               />
