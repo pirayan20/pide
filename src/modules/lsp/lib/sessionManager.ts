@@ -1,4 +1,7 @@
+import { IS_WINDOWS } from "@/lib/platform";
 import { usePreferencesStore } from "@/modules/settings/preferences";
+import { activeProjectRoot } from "@/modules/spaces/lib/activeSpace";
+import { useSpaces } from "@/modules/spaces/lib/useSpaces";
 import { currentWorkspaceEnv } from "@/modules/workspace";
 import type { Extension } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
@@ -6,6 +9,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import type { TeraxLspClient } from "./client";
 import { detectBinary } from "./detect";
+import { pickFallbackRoot } from "./fallbackRoot";
 import { getLspNavigator } from "./navigator";
 import { type LspPreset, serverForLanguage } from "./presets";
 import { useLspRuntimeStore } from "./runtimeStore";
@@ -60,6 +64,18 @@ function recordCrash(key: string): void {
   crashTimes.set(key, times);
 }
 
+// The opened project root, used as a marker-less file's fallback anchor.
+// Reached only after the local-env guard, so case sensitivity mirrors the
+// local platform.
+function projectRootFor(path: string): string | null {
+  const s = useSpaces.getState();
+  const activeProjectId = s.activeSpaceId
+    ? (s.activeProjectBySpace[s.activeSpaceId] ?? null)
+    : null;
+  const root = activeProjectRoot(s.projects, activeProjectId, s.availability);
+  return pickFallbackRoot(path, root, IS_WINDOWS);
+}
+
 export async function acquireDocExtension(
   path: string,
   langId: string,
@@ -78,10 +94,14 @@ export async function acquireDocExtension(
   // No project root means no session: a per-directory fallback multiplied
   // servers per open file and burned gigabytes.
   const markers = preset.rootMarkers.length > 0 ? preset.rootMarkers : [".git"];
-  const root = await invoke<string | null>("lsp_resolve_root", {
+  const resolved = await invoke<string | null>("lsp_resolve_root", {
     path,
     markers,
   }).catch(() => null);
+  // No marker above the file (a loose .ts with no tsconfig/package.json): fall
+  // back to the opened project root so it still gets diagnostics — one server
+  // per project, and only when that project actually contains the file.
+  const root = resolved ?? projectRootFor(path);
   if (!root) return null;
   const key = `${preset.id}\u0000${root}`;
   if (crashedOut(key)) return null;
