@@ -34,6 +34,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { COMMAND_GROUPS } from "./commands";
 import { useCommandHistory } from "./hooks/useCommandHistory";
 import {
@@ -106,7 +107,7 @@ export function CommandPalette({
       .map((x) => x.t);
   }, [inThemes, themeFilter, customThemes]);
 
-  const [interps, setInterps] = useState<InterpreterOption[]>([]);
+  const [interps, setInterps] = useState<InterpreterOption[] | null>(null);
   const inInterps = page === "interpreters";
   const currentInterp = usePythonInterpreterStore((s) =>
     workspaceRoot ? (s.byRoot[workspaceRoot] ?? null) : null,
@@ -114,6 +115,7 @@ export function CommandPalette({
 
   useEffect(() => {
     if (!inInterps || !workspaceRoot) return;
+    setInterps(null);
     let cancelled = false;
     void discoverInterpreters(workspaceRoot).then((list) => {
       if (!cancelled) setInterps(list);
@@ -195,10 +197,15 @@ export function CommandPalette({
   const commitInterpreter = useCallback(
     (path: string) => {
       if (!workspaceRoot) return;
-      void setPythonInterpreter(workspaceRoot, path).then(() => {
-        void usePythonInterpreterStore.getState().resolve(workspaceRoot);
-        void restartPresetSessions("pyright");
-      });
+      const root = workspaceRoot;
+      void setPythonInterpreter(root, path)
+        .then(() => {
+          usePythonInterpreterStore.getState().setActive(root, path);
+          void restartPresetSessions("pyright");
+        })
+        .catch((e) =>
+          toast.error("Failed to set interpreter", { description: String(e) }),
+        );
       handleOpenChange(false);
     },
     [workspaceRoot, handleOpenChange],
@@ -254,7 +261,7 @@ export function CommandPalette({
   );
 
   const placeholder = inInterps
-    ? "Search interpreters or paste a path..."
+    ? "Paste an interpreter path..."
     : inThemes
       ? "Search themes..."
       : parsed.mode === "content"
@@ -301,7 +308,7 @@ export function CommandPalette({
                   />
                   <span>Back</span>
                 </CommandItem>
-                {interps.map((opt) => (
+                {(interps ?? []).map((opt) => (
                   <CommandItem
                     key={opt.path}
                     value={`interp:${opt.path}`}
@@ -326,7 +333,9 @@ export function CommandPalette({
                   query={query}
                   onUse={commitInterpreter}
                 />
-                {interps.length === 0 ? (
+                {interps === null ? (
+                  <StatusItem label="Discovering..." />
+                ) : interps.length === 0 ? (
                   <StatusItem label="No interpreters found" />
                 ) : null}
               </CommandGroup>
@@ -636,18 +645,17 @@ function ManualInterpreterEntry({
     trimmed.startsWith("/") || /^[A-Za-z]:[\\/]/.test(trimmed);
 
   useEffect(() => {
-    if (!looksAbsolute) {
-      setExists(false);
-      return;
-    }
+    setExists(false);
+    if (!looksAbsolute) return;
     let cancelled = false;
     void native
       .fileStat(trimmed)
-      .then(
-        (s) =>
-          !cancelled && setExists(s.kind === "file" || s.kind === "symlink"),
-      )
-      .catch(() => !cancelled && setExists(false));
+      .then((s) => {
+        if (!cancelled) setExists(s.kind === "file" || s.kind === "symlink");
+      })
+      .catch(() => {
+        if (!cancelled) setExists(false);
+      });
     return () => {
       cancelled = true;
     };

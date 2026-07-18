@@ -112,6 +112,7 @@ export function createCommandItems(
       keywords: ["python", "interpreter", "venv", "environment", "pyright"],
       icon: SourceCodeIcon,
       trailing: ctx.pythonInterpreterLabel ?? undefined,
+      disabledReason: noProject ? "No project selected" : undefined,
       run: noop,
     },
     {

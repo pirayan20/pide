@@ -89,13 +89,15 @@ export class TauriLspTransport implements Transport {
       this.send(JSON.stringify({ jsonrpc: "2.0", id: msg.id, ...body }));
     switch (msg.method) {
       case "workspace/configuration": {
-        const items =
-          (msg.params as { items?: { section?: string }[] } | undefined)
-            ?.items ?? [];
+        const items = (
+          msg.params as { items?: ({ section?: string } | null)[] } | undefined
+        )?.items;
         reply({
-          result: items.map((it) =>
-            it.section ? (this.settings[it.section] ?? null) : null,
-          ),
+          result: Array.isArray(items)
+            ? items.map((it) =>
+                it?.section ? (this.settings[it.section] ?? null) : null,
+              )
+            : [],
         });
         return;
       }

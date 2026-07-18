@@ -100,6 +100,7 @@ export async function pythonWorkspaceSettings(
 type PyState = {
   byRoot: Record<string, string | null>;
   resolve: (root: string) => Promise<void>;
+  setActive: (root: string, path: string | null) => void;
 };
 
 export const usePythonInterpreterStore = create<PyState>((set, get) => ({
@@ -108,4 +109,5 @@ export const usePythonInterpreterStore = create<PyState>((set, get) => ({
     const path = await resolvePythonInterpreter(root);
     set({ byRoot: { ...get().byRoot, [root]: path } });
   },
+  setActive: (root, path) => set({ byRoot: { ...get().byRoot, [root]: path } }),
 }));

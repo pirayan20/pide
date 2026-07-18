@@ -56,6 +56,9 @@ describe("buildPythonSettings", () => {
     expect((s.python as { pythonPath: string }).pythonPath).toBe(
       "/repo/.venv/bin/python",
     );
-    expect(s["python.analysis"]).toMatchObject({ useLibraryCodeForTypes: true });
+    expect(s["python.analysis"]).toMatchObject({
+      useLibraryCodeForTypes: true,
+      autoSearchPaths: true,
+    });
   });
 });
