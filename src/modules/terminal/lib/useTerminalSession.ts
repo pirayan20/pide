@@ -18,7 +18,11 @@ import {
 } from "./osc-handlers";
 import { openPty, type PtySession } from "./pty-bridge";
 import "../block/block.css";
-import { ensureAgentActivityListener, isAgentActivePty } from "./agentActivity";
+import {
+  agentForPty,
+  ensureAgentActivityListener,
+  isAgentActivePty,
+} from "./agentActivity";
 import { useLeafTitleStore } from "./leafTitles";
 import {
   acquireSlot,
@@ -425,6 +429,10 @@ configureRendererPool({
     if (out.cols > 0) s.cols = out.cols;
     if (out.rows > 0) s.rows = out.rows;
     s.altScreenAtRelease = out.altScreen;
+  },
+  agentForLeaf: (leafId) => {
+    const ptyId = ptyIdForLeaf(leafId);
+    return ptyId === null ? null : agentForPty(ptyId);
   },
 });
 

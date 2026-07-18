@@ -32,6 +32,8 @@ export type SlotAdapter = {
   isLeafBusy(leafId: number): boolean;
   isLeafVisible(leafId: number): boolean;
   storeSnapshot(leafId: number, out: SerializeOutput): void;
+  /** Name of the coding agent active in this leaf's pty, if any. */
+  agentForLeaf(leafId: number): string | null;
 };
 
 export type LeafBridge = {
@@ -275,7 +277,14 @@ function createSlot(): Slot {
     }
     if (isShiftEnter(event)) {
       event.preventDefault();
-      if (event.type === "keydown") bridge.writeToPty("\x1b\r");
+      if (event.type === "keydown") {
+        // ponytail: pi-only gate; switch to kitty-protocol tracking if more
+        // CSI-u TUIs show up.
+        const pi =
+          slot.currentLeafId !== null &&
+          adapter?.agentForLeaf(slot.currentLeafId) === "pi";
+        bridge.writeToPty(pi ? "\x1b[13;2u" : "\x1b\r");
+      }
       return false;
     }
     if (isTerminalCopy(event)) {
