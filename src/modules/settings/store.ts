@@ -133,6 +133,8 @@ export type Preferences = {
   editorCustomFormatCommand: string;
   lspActivation: Record<string, LspActivation>;
   lspCustomServers: LspCustomServer[];
+  /** project root -> chosen Python interpreter path (overrides auto-detect). */
+  pythonInterpreters: Record<string, string>;
 };
 
 export type EditorFormatter =
@@ -196,6 +198,7 @@ const KEY_EDITOR_FORMATTER_BY_LANG = "editorFormatterByLang";
 const KEY_EDITOR_CUSTOM_FORMAT_COMMAND = "editorCustomFormatCommand";
 const KEY_LSP_ACTIVATION = "lspActivation";
 const KEY_LSP_CUSTOM_SERVERS = "lspCustomServers";
+const KEY_PYTHON_INTERPRETERS = "pythonInterpreters";
 
 export const TERMINAL_FONT_SIZE_DEFAULT = 14;
 export const TERMINAL_FONT_SIZE_MIN = 8;
@@ -255,6 +258,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   editorCustomFormatCommand: "",
   lspActivation: {},
   lspCustomServers: [],
+  pythonInterpreters: {},
 };
 
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
@@ -376,6 +380,9 @@ export async function loadPreferences(): Promise<Preferences> {
     lspCustomServers:
       get<LspCustomServer[]>(KEY_LSP_CUSTOM_SERVERS) ??
       DEFAULT_PREFERENCES.lspCustomServers,
+    pythonInterpreters:
+      get<Record<string, string>>(KEY_PYTHON_INTERPRETERS) ??
+      DEFAULT_PREFERENCES.pythonInterpreters,
   };
 }
 
@@ -390,6 +397,18 @@ export async function setLspActivation(
   if (value === null) delete next[id];
   else next[id] = value;
   await writePref(KEY_LSP_ACTIVATION, next);
+}
+
+export async function setPythonInterpreter(
+  root: string,
+  path: string | null,
+): Promise<void> {
+  const current =
+    ((await store.get(KEY_PYTHON_INTERPRETERS)) as Record<string, string>) ?? {};
+  const next = { ...current };
+  if (path === null) delete next[root];
+  else next[root] = path;
+  await writePref(KEY_PYTHON_INTERPRETERS, next);
 }
 
 export async function setLspCustomServers(
@@ -643,6 +662,7 @@ export async function onPreferencesChange(
     [KEY_EDITOR_CUSTOM_FORMAT_COMMAND]: "editorCustomFormatCommand",
     [KEY_LSP_ACTIVATION]: "lspActivation",
     [KEY_LSP_CUSTOM_SERVERS]: "lspCustomServers",
+    [KEY_PYTHON_INTERPRETERS]: "pythonInterpreters",
   };
   // Same-process writes still fire onChange immediately; cross-window writes
   // arrive via the Tauri event emitted by writePref().

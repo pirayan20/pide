@@ -12,6 +12,7 @@ function context(
     activeId: null,
     searchTarget: null,
     explorerRoot: null,
+    pythonInterpreterLabel: null,
     openNewTab: noop,
     openNewBlock: noop,
     openNewPrivate: noop,
@@ -94,5 +95,12 @@ describe("createCommandItems", () => {
         disabledReason: "Current project",
       },
     );
+  });
+
+  it("shows the current Python interpreter on the select command", () => {
+    const items = createCommandItems(context({ pythonInterpreterLabel: ".venv" }));
+    const item = items.find((i) => i.id === "python.selectInterpreter");
+    expect(item?.title).toBe("Python: Select Interpreter");
+    expect(item?.trailing).toBe(".venv");
   });
 });

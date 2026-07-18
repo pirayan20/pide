@@ -35,6 +35,7 @@ export type CommandPaletteActionContext = {
   activeId: number | null;
   searchTarget: SearchTarget;
   explorerRoot: string | null;
+  pythonInterpreterLabel: string | null;
   openNewTab: () => void;
   openNewBlock: () => void;
   openNewPrivate: () => void;
@@ -103,6 +104,16 @@ export function createCommandItems(
       keywords: ["keys", "keybindings", "settings"],
       icon: KeyboardIcon,
       run: ctx.openKeyboardShortcuts,
+    },
+    {
+      id: "python.selectInterpreter",
+      title: "Python: Select Interpreter",
+      group: "General",
+      keywords: ["python", "interpreter", "venv", "environment", "pyright"],
+      icon: SourceCodeIcon,
+      trailing: ctx.pythonInterpreterLabel ?? undefined,
+      disabledReason: noProject ? "No project selected" : undefined,
+      run: noop,
     },
     {
       id: "spaces.overview",

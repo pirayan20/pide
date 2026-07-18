@@ -12,6 +12,7 @@ import { detectBinary } from "./detect";
 import { pickFallbackRoot } from "./fallbackRoot";
 import { getLspNavigator } from "./navigator";
 import { type LspPreset, serverForLanguage } from "./presets";
+import { pythonWorkspaceSettings } from "./pythonInterpreter";
 import { useLspRuntimeStore } from "./runtimeStore";
 import type { TauriLspTransport } from "./transport";
 import { fileUriToPath, pathToFileUri } from "./uri";
@@ -214,12 +215,17 @@ async function createSession(
 
   const transport = new TauriLspTransport();
   try {
+    const settings =
+      preset.id === "pyright"
+        ? await pythonWorkspaceSettings(root)
+        : undefined;
     await transport.start({
       command: preset.command,
       args: preset.args,
       root,
       env: preset.env,
       maxMemoryMb: preset.maxMemoryMb,
+      settings,
     });
   } catch (e) {
     recordCrash(key);
