@@ -30,7 +30,11 @@ import {
   type SearchInlineHandle,
   type SearchTarget,
 } from "@/modules/header";
-import { setLspNavigator } from "@/modules/lsp";
+import {
+  interpreterLabel,
+  setLspNavigator,
+  usePythonInterpreterStore,
+} from "@/modules/lsp";
 import type { PreviewPaneHandle } from "@/modules/preview";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -362,6 +366,13 @@ export default function App() {
     activeProjectId,
     projectAvailability,
   );
+
+  const pythonInterpreterPath = usePythonInterpreterStore((s) =>
+    explorerRoot ? (s.byRoot[explorerRoot] ?? null) : null,
+  );
+  const pythonInterpreterLabel = pythonInterpreterPath
+    ? interpreterLabel(pythonInterpreterPath)
+    : null;
 
   useWindowTitle(activeTab, explorerRoot);
 
@@ -1181,6 +1192,7 @@ export default function App() {
             activeId,
             searchTarget,
             explorerRoot,
+            pythonInterpreterLabel,
             openNewTab,
             openNewBlock: openNewBlockTab,
             openNewPrivate: openNewPrivateTab,
@@ -1214,6 +1226,7 @@ export default function App() {
       activeId,
       searchTarget,
       explorerRoot,
+      pythonInterpreterLabel,
       openNewTab,
       openNewBlockTab,
       openNewPrivateTab,
@@ -1231,6 +1244,12 @@ export default function App() {
       handleNewSpace,
     ],
   );
+
+  useEffect(() => {
+    if (commandPaletteOpen && explorerRoot) {
+      void usePythonInterpreterStore.getState().resolve(explorerRoot);
+    }
+  }, [commandPaletteOpen, explorerRoot]);
 
   const pendingGotoLine = useRef<Map<number, number>>(new Map());
   const openContentHit = useCallback(
