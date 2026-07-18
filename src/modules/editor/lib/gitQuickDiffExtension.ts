@@ -546,7 +546,7 @@ const gitQuickDiffTheme = EditorView.theme({
     transition: "width 120ms ease",
   },
   ".cm-gitGutter:hover, .cm-gitGutter:focus-within": {
-    width: "5px",
+    width: "7px",
   },
   ".cm-gitGutterMarker": {
     boxSizing: "border-box",
