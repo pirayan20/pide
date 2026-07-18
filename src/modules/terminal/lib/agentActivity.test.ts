@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   aggregateAgentPhases,
   phaseForSignal,
+  pickTabAgent,
   useAgentActivityStore,
 } from "./agentActivity";
 
@@ -57,7 +58,7 @@ describe("aggregateAgentPhases", () => {
 });
 
 describe("useAgentActivityStore", () => {
-  beforeEach(() => useAgentActivityStore.setState({ phases: {} }));
+  beforeEach(() => useAgentActivityStore.setState({ phases: {}, agents: {} }));
 
   it("keeps a stable reference when the phase is unchanged", () => {
     const { setPhase } = useAgentActivityStore.getState();
@@ -73,5 +74,49 @@ describe("useAgentActivityStore", () => {
     setPhase(1, "attention");
     clear(1);
     expect(1 in useAgentActivityStore.getState().phases).toBe(false);
+  });
+});
+
+describe("pickTabAgent", () => {
+  it("returns null when no pty has an agent", () => {
+    expect(pickTabAgent({}, {}, [[10, 1]])).toBeNull();
+  });
+
+  it("returns the agent of the highest-severity phase", () => {
+    const phases = { 1: "working", 2: "attention" } as const;
+    const agents = { 1: "claude", 2: "pi" };
+    expect(
+      pickTabAgent(phases, agents, [
+        [10, 1],
+        [11, 2],
+      ]),
+    ).toEqual({ agent: "pi", leafId: 11 });
+  });
+
+  it("keeps an idle agent visible until it exits", () => {
+    expect(pickTabAgent({ 1: "idle" }, { 1: "codex" }, [[10, 1]])).toEqual({
+      agent: "codex",
+      leafId: 10,
+    });
+  });
+
+  it("ignores ptys with a phase but no recorded agent", () => {
+    expect(pickTabAgent({ 1: "working" }, {}, [[10, 1]])).toBeNull();
+  });
+});
+
+describe("agent name tracking", () => {
+  beforeEach(() =>
+    useAgentActivityStore.setState({ phases: {}, agents: {} }),
+  );
+
+  it("start records phase and agent; clear drops both", () => {
+    const s = useAgentActivityStore.getState();
+    s.start(1, "pi");
+    expect(useAgentActivityStore.getState().phases[1]).toBe("working");
+    expect(useAgentActivityStore.getState().agents[1]).toBe("pi");
+    useAgentActivityStore.getState().clear(1);
+    expect(useAgentActivityStore.getState().phases[1]).toBeUndefined();
+    expect(useAgentActivityStore.getState().agents[1]).toBeUndefined();
   });
 });

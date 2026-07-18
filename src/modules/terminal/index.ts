@@ -12,8 +12,10 @@ export {
   writeToSession,
 } from "./lib/useTerminalSession";
 export {
+  agentForPty,
   aggregateAgentPhases,
   type AgentTabStatus,
+  pickTabAgent,
   useAgentActivityStore,
 } from "./lib/agentActivity";
 export { useTerminalFileDrop } from "./lib/useTerminalFileDrop";
