@@ -18,8 +18,12 @@ describe("previewRendererFor", () => {
     expect(previewRendererFor("data.TSV")).toBe("csv");
   });
 
-  it("returns null for renderer-less extensions in this phase", () => {
-    expect(previewRendererFor("notebook.ipynb")).toBeNull();
+  it("returns notebook for ipynb (case-insensitive)", () => {
+    expect(previewRendererFor("notebook.ipynb")).toBe("notebook");
+    expect(previewRendererFor("notebook.IPYNB")).toBe("notebook");
+  });
+
+  it("returns null for renderer-less extensions", () => {
     expect(previewRendererFor("main.ts")).toBeNull();
   });
 
