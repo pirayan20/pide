@@ -61,6 +61,7 @@ export function phaseForSignal(
     case "working":
       return "working";
     case "attention":
+    case "error":
       return "attention";
     case "finished":
       return "finished";

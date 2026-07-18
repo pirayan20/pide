@@ -3,7 +3,7 @@ import { hasLeaf, leafIdForPty } from "@/modules/terminal";
 import { listen } from "@tauri-apps/api/event";
 import { useEffect, useRef } from "react";
 import { displayAgent } from "../lib/format";
-import { routeAgentNotification } from "../lib/route";
+import { consumePendingAgentJump, routeAgentNotification } from "../lib/route";
 import type { AgentSession, AgentSignal } from "../lib/types";
 import { useWindowFocus } from "../lib/useWindowFocus";
 import { useAgentStore } from "../store/agentStore";
@@ -19,35 +19,46 @@ type Ctx = {
 function tabInfo(
   tabs: Tab[],
   leafId: number,
-): { tabId: number; title: string } | null {
+): { tabId: number; title: string; project: string | null } | null {
   for (const t of tabs) {
     if (t.kind === "terminal" && hasLeaf(t.paneTree, leafId)) {
-      return { tabId: t.id, title: t.title };
+      const parts = (t.cwd ?? "").split(/[\\/]/).filter(Boolean);
+      return {
+        tabId: t.id,
+        title: t.title,
+        project: parts.length ? parts[parts.length - 1] : null,
+      };
     }
   }
   return null;
 }
 
+const HEADINGS: Record<"attention" | "finished" | "error", string> = {
+  attention: "needs your input",
+  finished: "finished",
+  error: "failed",
+};
+
 function route(
   session: AgentSession,
-  kind: "attention" | "finished",
+  kind: "attention" | "finished" | "error",
   ctx: Ctx,
 ): void {
   const info = tabInfo(ctx.tabs, session.leafId);
   const name = displayAgent(session.agent);
-  const heading =
-    kind === "attention" ? `${name} needs your input` : `${name} finished`;
+  const heading = `${name} ${HEADINGS[kind]}`;
 
   routeAgentNotification({
     source: "terminal",
     agent: session.agent,
     kind,
     title: heading,
-    body: info?.title,
+    body: info?.project ?? info?.title,
     focused: ctx.focused,
     visible: ctx.activeId === session.tabId,
-    // Stop fires every turn, so finished only updates the bell; attention toasts.
-    allowToast: kind === "attention",
+    // Stop fires every turn, so finished only updates the bell; attention and
+    // error toast.
+    allowToast: kind !== "finished",
     tabId: session.tabId,
     leafId: session.leafId,
     onActivate: () => ctx.onActivate(session.tabId, session.leafId),
@@ -81,6 +92,12 @@ function handleSignal(sig: AgentSignal, ctx: Ctx): void {
       if (session) route(session, "finished", ctx);
       return;
     }
+    case "error": {
+      store.setStatus(leafId, "waiting");
+      const session = store.sessions[leafId];
+      if (session) route(session, "error", ctx);
+      return;
+    }
     case "exited":
       store.finish(leafId);
       return;
@@ -99,6 +116,15 @@ export function AgentNotificationsBridge({
   const focused = useWindowFocus();
   const ctxRef = useRef<Ctx>({ tabs, activeId, focused, onActivate });
   ctxRef.current = { tabs, activeId, focused, onActivate };
+
+  const prevFocused = useRef(focused);
+  useEffect(() => {
+    if (focused && !prevFocused.current) {
+      const target = consumePendingAgentJump();
+      if (target) onActivate(target.tabId, target.leafId);
+    }
+    prevFocused.current = focused;
+  }, [focused, onActivate]);
 
   useEffect(() => {
     let alive = true;
