@@ -1,4 +1,8 @@
 import { IS_WINDOWS } from "@/lib/platform";
+import { native } from "@/lib/native";
+import { usePreferencesStore } from "@/modules/settings/preferences";
+import { create } from "zustand";
+import { detectBinary } from "./detect";
 
 export type InterpreterOption = { path: string; label: string };
 
@@ -37,3 +41,71 @@ export function buildPythonSettings(
     "python.analysis": analysis,
   };
 }
+
+async function pathIsFile(path: string): Promise<boolean> {
+  return native
+    .fileStat(path)
+    .then((s) => s.kind === "file" || s.kind === "symlink")
+    .catch(() => false);
+}
+
+async function firstExisting(paths: string[]): Promise<string | null> {
+  for (const p of paths) {
+    if (await pathIsFile(p)) return p;
+  }
+  return null;
+}
+
+// $VIRTUAL_ENV is not probed directly (the app process rarely inherits the
+// workspace shell's env). An activated venv surfaces through the PATH fallback
+// below, since detectBinary resolves `python3` against the launch environment.
+export async function resolvePythonInterpreter(
+  root: string,
+): Promise<string | null> {
+  const override = usePreferencesStore.getState().pythonInterpreters[root] ?? null;
+  if (override) return override;
+  const existingVenv = await firstExisting(interpreterCandidates(root));
+  const pathPython = existingVenv
+    ? null
+    : ((await detectBinary("python3")) ?? (await detectBinary("python")));
+  return chooseInterpreter({ override, existingVenv, pathPython });
+}
+
+export async function discoverInterpreters(
+  root: string,
+): Promise<InterpreterOption[]> {
+  const out: InterpreterOption[] = [];
+  const seen = new Set<string>();
+  const add = (path: string | null) => {
+    if (path && !seen.has(path)) {
+      seen.add(path);
+      out.push({ path, label: interpreterLabel(path) });
+    }
+  };
+  const [venv, venv2] = interpreterCandidates(root);
+  add(await firstExisting([venv]));
+  add(await firstExisting([venv2]));
+  add(await detectBinary("python3"));
+  add(await detectBinary("python"));
+  return out;
+}
+
+export async function pythonWorkspaceSettings(
+  root: string,
+): Promise<Record<string, unknown> | undefined> {
+  const interpreter = await resolvePythonInterpreter(root);
+  return interpreter ? buildPythonSettings(interpreter) : undefined;
+}
+
+type PyState = {
+  byRoot: Record<string, string | null>;
+  resolve: (root: string) => Promise<void>;
+};
+
+export const usePythonInterpreterStore = create<PyState>((set, get) => ({
+  byRoot: {},
+  resolve: async (root) => {
+    const path = await resolvePythonInterpreter(root);
+    set({ byRoot: { ...get().byRoot, [root]: path } });
+  },
+}));
