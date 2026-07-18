@@ -5,10 +5,10 @@ const ST_FINAL: u8 = b'\\';
 
 const OSC_MAX: usize = 2048;
 
-const DEFAULT_AGENTS: &[&str] = &["claude", "codex", "gemini"];
+const DEFAULT_AGENTS: &[&str] = &["claude", "codex", "gemini", "pi"];
 
 // OSC 777 marker our agent hooks emit. Legacy 3-field `notify;Terax;<event>`
-// (Claude) or 4-field `notify;Terax;<agent>;<event>` (Codex/Gemini).
+// (Claude) or 4-field `notify;Terax;<agent>;<event>` (Codex/Gemini/Pi).
 const TERAX_MARKER: &[u8] = b"notify;Terax;";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -31,6 +31,7 @@ pub enum Transition {
     Working,
     Attention,
     Finished,
+    Error,
     Exited,
 }
 
@@ -50,6 +51,7 @@ impl Transition {
             Transition::Working => AgentSignal { id, kind: "working", agent: None },
             Transition::Attention => AgentSignal { id, kind: "attention", agent: None },
             Transition::Finished => AgentSignal { id, kind: "finished", agent: None },
+            Transition::Error => AgentSignal { id, kind: "error", agent: None },
             Transition::Exited => AgentSignal { id, kind: "exited", agent: None },
         }
     }
@@ -190,6 +192,11 @@ impl AgentDetector {
                     self.ensure_armed(agent, emit);
                     self.status = Status::Waiting;
                     emit(Transition::Finished);
+                }
+                b"error" => {
+                    self.ensure_armed(agent, emit);
+                    self.status = Status::Waiting;
+                    emit(Transition::Error);
                 }
                 _ => {}
             }
@@ -429,5 +436,46 @@ mod tests {
         seq.extend_from_slice(&[ESC, ST_FINAL]);
         assert!(run(&mut d, &seq).is_empty());
         assert_eq!(run(&mut d, &osc("777;notify;Terax;attention")), vec![Transition::Attention]);
+    }
+
+    #[test]
+    fn arms_on_pi_command() {
+        let mut d = AgentDetector::new();
+        assert_eq!(run(&mut d, &osc("133;C;pi")), vec![started("pi")]);
+        // "pip install" must not arm: rest of token is not empty or dash.
+        let mut d2 = AgentDetector::new();
+        assert!(run(&mut d2, &osc("133;C;pip install requests")).is_empty());
+    }
+
+    #[test]
+    fn pi_marker_self_arms_and_drives_status() {
+        let mut d = AgentDetector::new();
+        assert_eq!(
+            run(&mut d, &osc("777;notify;Terax;pi;working")),
+            vec![started("pi")]
+        );
+        assert_eq!(
+            run(&mut d, &osc("777;notify;Terax;pi;finished")),
+            vec![Transition::Finished]
+        );
+        assert_eq!(
+            run(&mut d, &osc("777;notify;Terax;pi;working")),
+            vec![Transition::Working]
+        );
+    }
+
+    #[test]
+    fn error_marker_emits_error_and_sets_waiting() {
+        let mut d = AgentDetector::new();
+        run(&mut d, &osc("133;C;claude"));
+        assert_eq!(
+            run(&mut d, &osc("777;notify;Terax;claude;error")),
+            vec![Transition::Error]
+        );
+        // Waiting after error: a later working marker re-emits Working.
+        assert_eq!(
+            run(&mut d, &osc("777;notify;Terax;claude;working")),
+            vec![Transition::Working]
+        );
     }
 }
