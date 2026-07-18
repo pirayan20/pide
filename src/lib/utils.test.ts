@@ -13,8 +13,12 @@ describe("previewRendererFor", () => {
     expect(previewRendererFor("diagram.MERMAID")).toBe("mermaid");
   });
 
+  it("returns csv for csv/tsv (case-insensitive)", () => {
+    expect(previewRendererFor("data.csv")).toBe("csv");
+    expect(previewRendererFor("data.TSV")).toBe("csv");
+  });
+
   it("returns null for renderer-less extensions in this phase", () => {
-    expect(previewRendererFor("data.csv")).toBeNull();
     expect(previewRendererFor("notebook.ipynb")).toBeNull();
     expect(previewRendererFor("main.ts")).toBeNull();
   });
