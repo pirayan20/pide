@@ -55,7 +55,10 @@ describe("PreviewPane iframe sandbox", () => {
   });
 
   it("keys the sandbox choice on an asset URL", () => {
-    expect(iframeJsx).toMatch(/asset:|asset\.localhost/);
+    // The asset check lives in the isAssetPreviewUrl helper (parsed via URL so
+    // the host match is case-insensitive), not inline in the iframe JSX.
+    expect(src).toMatch(/asset:/);
+    expect(src).toMatch(/asset\.localhost/);
   });
 
   it("does NOT include allow-top-navigation* tokens", () => {
