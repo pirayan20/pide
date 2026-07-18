@@ -8,6 +8,8 @@ export type LspSpawnConfig = {
   root: string;
   env?: Record<string, string>;
   maxMemoryMb?: number;
+  /** LSP section -> value, returned for the server's workspace/configuration. */
+  settings?: Record<string, unknown>;
 };
 
 export type LspExitInfo = {
@@ -40,9 +42,11 @@ export class TauriLspTransport implements Transport {
   private onCloseCb: (() => void) | null = null;
   private onErrorCb: ((error: Error) => void) | null = null;
   private backlog: string[] = [];
+  private settings: Record<string, unknown> = {};
   exitInfo: LspExitInfo | null = null;
 
   async start(config: LspSpawnConfig): Promise<void> {
+    this.settings = config.settings ?? {};
     const decoder = new TextDecoder();
     const onMessage = new Channel<ArrayBuffer>();
     onMessage.onmessage = (buf) => {
@@ -86,8 +90,13 @@ export class TauriLspTransport implements Transport {
     switch (msg.method) {
       case "workspace/configuration": {
         const items =
-          (msg.params as { items?: unknown[] } | undefined)?.items ?? [];
-        reply({ result: items.map(() => null) });
+          (msg.params as { items?: { section?: string }[] } | undefined)
+            ?.items ?? [];
+        reply({
+          result: items.map((it) =>
+            it.section ? (this.settings[it.section] ?? null) : null,
+          ),
+        });
         return;
       }
       case "window/workDoneProgress/create":
