@@ -19,6 +19,7 @@ import {
 import { openPty, type PtySession } from "./pty-bridge";
 import "../block/block.css";
 import { ensureAgentActivityListener, isAgentActivePty } from "./agentActivity";
+import { useLeafTitleStore } from "./leafTitles";
 import {
   acquireSlot,
   applyBackgroundActive,
@@ -650,7 +651,10 @@ function bindLeafToSlot(leafId: number, s: Session): void {
         shellState,
       );
       const osc52 = registerOsc52ClipboardHandler(term);
-      return [prompt.dispose, cwd, osc52];
+      const title = term.onTitleChange((t) =>
+        useLeafTitleStore.getState().set(leafId, t),
+      );
+      return [prompt.dispose, cwd, osc52, () => title.dispose()];
     },
     onSearchReady: (addon) => s.callbacks.onSearchReady?.(addon),
   });
@@ -799,6 +803,7 @@ export function disposeSession(leafId: number): void {
   s.pty = null;
   s.pendingInput = "";
   sessions.delete(leafId);
+  useLeafTitleStore.getState().clear(leafId);
   blockViewportListeners.delete(leafId);
   readyLeaves.delete(leafId);
   const waiters = readyWaiters.get(leafId);

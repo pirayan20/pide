@@ -19,6 +19,7 @@ export {
   useAgentActivityStore,
 } from "./lib/agentActivity";
 export { useTerminalFileDrop } from "./lib/useTerminalFileDrop";
+export { useLeafTitleStore } from "./lib/leafTitles";
 export {
   findLeafCwd,
   hasLeaf,
