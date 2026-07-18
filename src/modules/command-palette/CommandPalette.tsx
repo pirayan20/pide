@@ -8,8 +8,16 @@ import {
   CommandShortcut,
 } from "@/components/ui/command";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { native } from "@/lib/native";
 import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
+import {
+  discoverInterpreters,
+  type InterpreterOption,
+  restartPresetSessions,
+  usePythonInterpreterStore,
+} from "@/modules/lsp";
 import { usePreferencesStore } from "@/modules/settings/preferences";
+import { setPythonInterpreter } from "@/modules/settings/store";
 import {
   getBindingTokens,
   SHORTCUTS,
@@ -61,7 +69,7 @@ export function CommandPalette({
 }: Props) {
   const [query, setQuery] = useState("");
   const [value, setValue] = useState("");
-  const [page, setPage] = useState<"root" | "themes">("root");
+  const [page, setPage] = useState<"root" | "themes" | "interpreters">("root");
   const userShortcuts = usePreferencesStore((s) => s.shortcuts);
   const { themeId, customThemes, setThemeId, previewThemeId } = useTheme();
 
@@ -97,6 +105,23 @@ export function CommandPalette({
       .sort((a, b) => (b.s ?? 0) - (a.s ?? 0))
       .map((x) => x.t);
   }, [inThemes, themeFilter, customThemes]);
+
+  const [interps, setInterps] = useState<InterpreterOption[]>([]);
+  const inInterps = page === "interpreters";
+  const currentInterp = usePythonInterpreterStore((s) =>
+    workspaceRoot ? (s.byRoot[workspaceRoot] ?? null) : null,
+  );
+
+  useEffect(() => {
+    if (!inInterps || !workspaceRoot) return;
+    let cancelled = false;
+    void discoverInterpreters(workspaceRoot).then((list) => {
+      if (!cancelled) setInterps(list);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [inInterps, workspaceRoot]);
 
   const resetPalette = useCallback(() => {
     setQuery("");
@@ -155,16 +180,41 @@ export function CommandPalette({
     setValue("");
   }, [previewThemeId]);
 
+  const enterInterpreters = useCallback(() => {
+    setPage("interpreters");
+    setQuery("");
+    setValue("");
+  }, []);
+
+  const exitInterpreters = useCallback(() => {
+    setPage("root");
+    setQuery("");
+    setValue("");
+  }, []);
+
+  const commitInterpreter = useCallback(
+    (path: string) => {
+      if (!workspaceRoot) return;
+      void setPythonInterpreter(workspaceRoot, path).then(() => {
+        void usePythonInterpreterStore.getState().resolve(workspaceRoot);
+        void restartPresetSessions("pyright");
+      });
+      handleOpenChange(false);
+    },
+    [workspaceRoot, handleOpenChange],
+  );
+
   const runCommand = useCallback(
     (item: PaletteItem) => {
       if (item.disabledReason) return;
       if (item.id === "theme.pick") return enterThemes();
+      if (item.id === "python.selectInterpreter") return enterInterpreters();
       if (item.id === "search.content") return setQuery("#");
       if (item.id === "history.open") return setQuery(">");
       recordUse(item.id);
       runAfterClose(item.run);
     },
-    [enterThemes, runAfterClose],
+    [enterThemes, enterInterpreters, runAfterClose],
   );
 
   const openContent = useCallback(
@@ -192,23 +242,26 @@ export function CommandPalette({
 
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (!inThemes) return;
+      if (!inThemes && !inInterps) return;
       if (e.key === "Escape" || (e.key === "Backspace" && query.length === 0)) {
         e.preventDefault();
         e.stopPropagation();
-        exitThemes();
+        if (inThemes) exitThemes();
+        else exitInterpreters();
       }
     },
-    [inThemes, query, exitThemes],
+    [inThemes, inInterps, query, exitThemes, exitInterpreters],
   );
 
-  const placeholder = inThemes
-    ? "Search themes..."
-    : parsed.mode === "content"
-      ? "Find text in files..."
-      : parsed.mode === "history"
-        ? "Search command history..."
-        : "Type a command, > for history, # to find in files";
+  const placeholder = inInterps
+    ? "Search interpreters or paste a path..."
+    : inThemes
+      ? "Search themes..."
+      : parsed.mode === "content"
+        ? "Find text in files..."
+        : parsed.mode === "history"
+          ? "Search command history..."
+          : "Type a command, > for history, # to find in files";
 
   return (
     <CommandDialog
@@ -234,7 +287,50 @@ export function CommandPalette({
         />
         <ScrollArea className="max-h-[420px]">
           <CommandList className="max-h-none overflow-visible pr-3">
-            {inThemes ? (
+            {inInterps ? (
+              <CommandGroup heading="Python interpreter">
+                <CommandItem
+                  value="interp:back"
+                  onSelect={exitInterpreters}
+                  className="text-[12.5px]"
+                >
+                  <HugeiconsIcon
+                    icon={ArrowTurnBackwardIcon}
+                    size={14}
+                    strokeWidth={1.75}
+                  />
+                  <span>Back</span>
+                </CommandItem>
+                {interps.map((opt) => (
+                  <CommandItem
+                    key={opt.path}
+                    value={`interp:${opt.path}`}
+                    onSelect={() => commitInterpreter(opt.path)}
+                    className="text-[12.5px]"
+                  >
+                    <span className="truncate">{opt.label}</span>
+                    <span className="ml-2 min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+                      {opt.path}
+                    </span>
+                    {opt.path === currentInterp ? (
+                      <HugeiconsIcon
+                        icon={Tick02Icon}
+                        size={14}
+                        strokeWidth={2}
+                        className="ml-auto text-muted-foreground"
+                      />
+                    ) : null}
+                  </CommandItem>
+                ))}
+                <ManualInterpreterEntry
+                  query={query}
+                  onUse={commitInterpreter}
+                />
+                {interps.length === 0 ? (
+                  <StatusItem label="No interpreters found" />
+                ) : null}
+              </CommandGroup>
+            ) : inThemes ? (
               <CommandGroup heading="Themes">
                 <CommandItem
                   value="theme:back"
@@ -525,4 +621,49 @@ function formatShortcut(
   const bindings = userShortcuts[shortcutId] ?? shortcut?.defaultBindings;
   const tokens = getBindingTokens(bindings?.[0]);
   return tokens.length ? tokens.join(" ") : null;
+}
+
+function ManualInterpreterEntry({
+  query,
+  onUse,
+}: {
+  query: string;
+  onUse: (path: string) => void;
+}) {
+  const [exists, setExists] = useState(false);
+  const trimmed = query.trim();
+  const looksAbsolute =
+    trimmed.startsWith("/") || /^[A-Za-z]:[\\/]/.test(trimmed);
+
+  useEffect(() => {
+    if (!looksAbsolute) {
+      setExists(false);
+      return;
+    }
+    let cancelled = false;
+    void native
+      .fileStat(trimmed)
+      .then(
+        (s) =>
+          !cancelled && setExists(s.kind === "file" || s.kind === "symlink"),
+      )
+      .catch(() => !cancelled && setExists(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [trimmed, looksAbsolute]);
+
+  if (!looksAbsolute) return null;
+  return (
+    <CommandItem
+      value={`interp:manual:${trimmed}`}
+      disabled={!exists}
+      onSelect={() => onUse(trimmed)}
+      className="text-[12.5px]"
+    >
+      <span className="truncate">
+        {exists ? `Use ${trimmed}` : "Path not found"}
+      </span>
+    </CommandItem>
+  );
 }

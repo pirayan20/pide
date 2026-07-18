@@ -12,5 +12,6 @@ export { useLspRuntimeStore } from "./lib/runtimeStore";
 export {
   lspFormatDocument,
   notifyDocumentSaved,
+  restartPresetSessions,
 } from "./lib/sessionManager";
 export { useLspExtension } from "./lib/useLspExtension";
