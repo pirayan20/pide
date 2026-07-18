@@ -1,3 +1,4 @@
+import { previewRendererFor } from "@/lib/utils";
 import { rebasePath } from "./projectPaths";
 import {
   isLeaf,
@@ -6,8 +7,8 @@ import {
 } from "@/modules/terminal/lib/panes";
 import type {
   EditorTab,
-  MarkdownTab,
   PreviewTab,
+  RenderTab,
   Tab,
   TerminalTab,
 } from "@/modules/tabs/lib/useTabs";
@@ -25,6 +26,9 @@ export type SerializedTab =
     }
   | { kind: "editor"; path: string }
   | { kind: "preview"; url: string }
+  | { kind: "render"; path: string }
+  // Legacy alias from before the markdown tab kind was generalized into
+  // "render" — still accepted on hydrate so old persisted workspaces restore.
   | { kind: "markdown"; path: string };
 
 function basename(path: string): string {
@@ -61,7 +65,7 @@ export function isSerializableTab(tab: Tab): boolean {
       return !tab.private;
     case "editor":
     case "preview":
-    case "markdown":
+    case "render":
       return true;
     default:
       return false;
@@ -82,8 +86,8 @@ function serializeTab(tab: Tab): SerializedTab | null {
       return { kind: "editor", path: tab.path };
     case "preview":
       return { kind: "preview", url: tab.url };
-    case "markdown":
-      return { kind: "markdown", path: tab.path };
+    case "render":
+      return { kind: "render", path: tab.path };
     default:
       return null;
   }
@@ -186,15 +190,20 @@ function hydrateTab(
         title: titleFromUrl(s.url),
         url: s.url,
       } satisfies PreviewTab;
-    case "markdown":
+    case "render":
+    case "markdown": {
+      const renderer = previewRendererFor(s.path);
+      if (!renderer) return null;
       return {
         id: allocId(),
-        kind: "markdown",
+        kind: "render",
         projectId,
         cold: true,
         title: basename(s.path),
         path: s.path,
-      } satisfies MarkdownTab;
+        renderer,
+      } satisfies RenderTab;
+    }
     default:
       return null;
   }
@@ -232,15 +241,14 @@ export function rebaseSerializedTabs(
     if (tab.kind === "terminal") {
       return {
         ...tab,
-        tree: rebaseSerializedNode(
-          tab.tree,
-          oldRoot,
-          newRoot,
-          caseInsensitive,
-        ),
+        tree: rebaseSerializedNode(tab.tree, oldRoot, newRoot, caseInsensitive),
       };
     }
-    if (tab.kind === "editor" || tab.kind === "markdown") {
+    if (
+      tab.kind === "editor" ||
+      tab.kind === "render" ||
+      tab.kind === "markdown"
+    ) {
       return {
         ...tab,
         path: rebasePath(tab.path, oldRoot, newRoot, caseInsensitive),

@@ -1,10 +1,26 @@
-import { clsx, type ClassValue } from "clsx"
-import { twMerge } from "tailwind-merge"
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
 
 export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs))
+  return twMerge(clsx(inputs));
+}
+
+export type RenderKind = "markdown" | "mermaid" | "csv" | "notebook";
+
+export function previewRendererFor(path: string): RenderKind | null {
+  switch (path.split(".").pop()?.toLowerCase()) {
+    case "md":
+    case "markdown":
+    case "mdx":
+      return "markdown"; // P0
+    // case "mmd": case "mermaid": return "mermaid";           // added in P2
+    // case "csv": case "tsv":     return "csv";                // added in P3 (pane re-derives delimiter)
+    // case "ipynb":               return "notebook";           // added in P4
+    default:
+      return null;
+  }
 }
 
 export function isMarkdownPath(path: string): boolean {
-  return /\.(md|markdown|mdx)$/i.test(path)
+  return previewRendererFor(path) === "markdown";
 }

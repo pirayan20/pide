@@ -1,21 +1,21 @@
 import { cn } from "@/lib/utils";
-import type { MarkdownTab, Tab } from "@/modules/tabs";
-import { MarkdownPreviewPane } from "./MarkdownPreviewPane";
+import type { RenderTab, Tab } from "@/modules/tabs";
+import { RenderPane } from "./RenderPane";
 
 type Props = {
   tabs: Tab[];
   activeId: number | null;
-  onSetMarkdownView: (id: number, mode: "rendered" | "raw") => void;
+  onSetRenderView: (id: number, mode: "rendered" | "raw") => void;
 };
 
-export function MarkdownStack({ tabs, activeId, onSetMarkdownView }: Props) {
-  const markdowns = tabs.filter(
-    (t): t is MarkdownTab => t.kind === "markdown" && !t.cold,
+export function RenderStack({ tabs, activeId, onSetRenderView }: Props) {
+  const renders = tabs.filter(
+    (t): t is RenderTab => t.kind === "render" && !t.cold,
   );
-  if (markdowns.length === 0) return null;
+  if (renders.length === 0) return null;
   return (
     <div className="relative h-full w-full">
-      {markdowns.map((t) => {
+      {renders.map((t) => {
         const visible = t.id === activeId;
         return (
           <div
@@ -26,10 +26,11 @@ export function MarkdownStack({ tabs, activeId, onSetMarkdownView }: Props) {
             )}
             aria-hidden={!visible}
           >
-            <MarkdownPreviewPane
+            <RenderPane
               path={t.path}
+              renderer={t.renderer}
               visible={visible}
-              onSetView={(mode) => onSetMarkdownView(t.id, mode)}
+              onSetView={(mode) => onSetRenderView(t.id, mode)}
             />
           </div>
         );
