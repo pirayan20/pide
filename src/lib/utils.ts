@@ -13,7 +13,9 @@ export function previewRendererFor(path: string): RenderKind | null {
     case "markdown":
     case "mdx":
       return "markdown"; // P0
-    // case "mmd": case "mermaid": return "mermaid";           // added in P2
+    case "mmd":
+    case "mermaid":
+      return "mermaid";
     // case "csv": case "tsv":     return "csv";                // added in P3 (pane re-derives delimiter)
     // case "ipynb":               return "notebook";           // added in P4
     default:

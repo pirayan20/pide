@@ -8,8 +8,12 @@ describe("previewRendererFor", () => {
     expect(previewRendererFor("notes.mdx")).toBe("markdown");
   });
 
+  it("returns mermaid for mmd/mermaid (case-insensitive)", () => {
+    expect(previewRendererFor("diagram.mmd")).toBe("mermaid");
+    expect(previewRendererFor("diagram.MERMAID")).toBe("mermaid");
+  });
+
   it("returns null for renderer-less extensions in this phase", () => {
-    expect(previewRendererFor("diagram.mmd")).toBeNull();
     expect(previewRendererFor("data.csv")).toBeNull();
     expect(previewRendererFor("notebook.ipynb")).toBeNull();
     expect(previewRendererFor("main.ts")).toBeNull();
