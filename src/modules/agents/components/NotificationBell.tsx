@@ -20,6 +20,7 @@ import { AgentIcon } from "../lib/agentIcon";
 import { displayAgent } from "../lib/format";
 import type { AgentNotification, AgentStatus } from "../lib/types";
 import { useAgentStore } from "../store/agentStore";
+import { showAgentToast } from "./AgentToast";
 
 type Props = {
   onActivate: (tabId: number, leafId: number) => void;
@@ -217,8 +218,14 @@ export function NotificationBell({ onActivate }: Props) {
     try {
       await invoke("agent_enable_hooks", { agent: id });
       setHooks((h) => ({ ...h, [id]: true }));
-    } catch {
+    } catch (e) {
       setHooks((h) => ({ ...h, [id]: false }));
+      showAgentToast({
+        agent: id,
+        title: `${displayAgent(id)} alerts setup failed`,
+        body: String(e),
+        onActivate: () => {},
+      });
     } finally {
       setInstalling(null);
     }
