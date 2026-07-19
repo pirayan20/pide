@@ -4,6 +4,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { LspStatusPill } from "@/modules/lsp";
+import { UsageStatusBar } from "@/modules/usage";
 import type { WorkspaceEnv } from "@/modules/workspace";
 import { IncognitoIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -58,6 +59,7 @@ export function StatusBar({
           </Tooltip>
         ) : null}
       </div>
+      <UsageStatusBar />
     </footer>
   );
 }

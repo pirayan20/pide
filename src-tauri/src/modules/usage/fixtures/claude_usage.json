@@ -1,0 +1,7 @@
+{
+  "_unconfirmed": true,
+  "five_hour": { "utilization": 38, "resets_at": 1752949200 },
+  "seven_day": { "utilization": 4, "resets_at": 1753500000 },
+  "seven_day_opus": { "utilization": 2, "resets_at": 1753500000 },
+  "account": { "email": "user@example.com", "plan": "max" }
+}

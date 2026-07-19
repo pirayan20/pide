@@ -4,19 +4,18 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { Toaster } from "@/components/ui/sonner";
-import { toast } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { consumeLaunchFiles, getLaunchDir } from "@/lib/launchDir";
+import { native } from "@/lib/native";
 import { IS_WINDOWS } from "@/lib/platform";
 import { quoteShellArg } from "@/lib/shellQuote";
 import { useZoom } from "@/lib/useZoom";
 import { previewRendererFor } from "@/lib/utils";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import {
   AgentNotificationsBridge,
   nextAttentionTarget,
 } from "@/modules/agents";
-import { native } from "@/lib/native";
+import { useWindowFocus } from "@/modules/agents/lib/useWindowFocus";
 import { CommandPalette, createCommandItems } from "@/modules/command-palette";
 import {
   type EditorPaneHandle,
@@ -40,9 +39,9 @@ import type { PreviewPaneHandle } from "@/modules/preview";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
-  shouldDisablePaneSwapShortcut,
   type ShortcutHandlers,
   type ShortcutId,
+  shouldDisablePaneSwapShortcut,
   useGlobalShortcuts,
 } from "@/modules/shortcuts";
 import {
@@ -58,9 +57,9 @@ import {
 import {
   activeProjectRoot,
   deleteProjectData,
-  pathsOverlap,
   ProjectPathDialog,
   ProjectStateView,
+  pathsOverlap,
   SpaceSwitcher,
   useSpacePersistence,
   useSpaces,
@@ -87,10 +86,13 @@ import {
 } from "@/modules/terminal";
 import { ThemeProvider, useThemeFileEditing } from "@/modules/theme";
 import { UpdaterDialog } from "@/modules/updater";
+import { useUsageStore, V1_PROVIDERS } from "@/modules/usage";
 import { useWorkspaceEnvStore, type WorkspaceEnv } from "@/modules/workspace";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { SearchAddon } from "@xterm/addon-search";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { CloseDialogs } from "./components/CloseDialogs";
 import {
   FOCUS_BLOCK_INPUT_EVENT,
@@ -258,6 +260,17 @@ export default function App() {
       lastActiveTabByProject.current.set(activeProjectId, activeId);
     }
   }, [activeProjectId, activeId, activeTab]);
+
+  useEffect(() => {
+    const { connect, startAutoRefresh } = useUsageStore.getState();
+    for (const p of V1_PROVIDERS) void connect(p);
+    return startAutoRefresh();
+  }, []);
+
+  const focused = useWindowFocus();
+  useEffect(() => {
+    if (focused) void useUsageStore.getState().refreshAll();
+  }, [focused]);
 
   const activeTabForProject = useCallback((projectId: string) => {
     const owned = tabsRef.current.filter((tab) => tab.projectId === projectId);
