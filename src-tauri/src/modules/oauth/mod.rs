@@ -1,6 +1,10 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
+use std::sync::Mutex;
+use std::time::Duration;
 
+pub mod loopback;
 pub mod store;
 pub mod token;
 
@@ -80,6 +84,83 @@ pub fn authorize_url(cfg: &ProviderConfig, challenge: &str, state: &str) -> Stri
         enc(challenge),
         enc(state),
     )
+}
+
+pub struct Pending {
+    pub verifier: String,
+    pub state: String,
+}
+
+#[derive(Default)]
+pub struct OauthState(pub Mutex<HashMap<String, Pending>>);
+
+fn open_browser(app: &tauri::AppHandle, url: &str) {
+    use tauri_plugin_opener::OpenerExt;
+    let _ = app.opener().open_url(url, None::<&str>);
+}
+
+/// Loopback login (Codex): open browser, wait for the callback, exchange, save.
+#[tauri::command]
+pub async fn usage_login(app: tauri::AppHandle, provider: String) -> Result<Option<String>, String> {
+    let cfg = provider_config(&provider).ok_or("unknown provider")?;
+    let port = cfg.loopback_port.ok_or("provider is not loopback; use usage_login_start")?;
+    let p = pkce();
+    let st = random_urlsafe(24);
+    let url = authorize_url(&cfg, &p.challenge, &st);
+    open_browser(&app, &url);
+    // Wait for the callback + exchange off the async runtime.
+    let verifier = p.verifier;
+    let state = st;
+    let provider2 = provider.clone();
+    let tokens = tauri::async_runtime::spawn_blocking(move || {
+        let cfg = provider_config(&provider2)?;
+        let code = loopback::wait_for_code(port, &state, Duration::from_secs(120))?;
+        token::exchange_code(&cfg, &code, &verifier)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    let tokens = tokens.ok_or("login did not complete")?;
+    store::save(&provider, &tokens);
+    Ok(tokens.account)
+}
+
+/// Paste login step 1 (Claude): stash pkce+state, return the authorize URL.
+#[tauri::command]
+pub fn usage_login_start(provider: String, state: tauri::State<OauthState>) -> Result<String, String> {
+    let cfg = provider_config(&provider).ok_or("unknown provider")?;
+    let p = pkce();
+    let st = random_urlsafe(24);
+    let url = authorize_url(&cfg, &p.challenge, &st);
+    state
+        .0
+        .lock()
+        .unwrap()
+        .insert(provider, Pending { verifier: p.verifier, state: st });
+    Ok(url)
+}
+
+/// Paste login step 2 (Claude): exchange the pasted code with the stashed verifier.
+#[tauri::command]
+pub fn usage_login_finish(
+    provider: String,
+    code: String,
+    state: tauri::State<OauthState>,
+) -> Result<Option<String>, String> {
+    let cfg = provider_config(&provider).ok_or("unknown provider")?;
+    let pending = state.0.lock().unwrap().remove(&provider).ok_or("no pending login")?;
+    let tokens = token::exchange_code(&cfg, code.trim(), &pending.verifier).ok_or("code exchange failed")?;
+    store::save(&provider, &tokens);
+    Ok(tokens.account)
+}
+
+#[tauri::command]
+pub fn usage_logout(provider: String) {
+    store::delete(&provider);
+}
+
+#[tauri::command]
+pub fn usage_connected(provider: String) -> bool {
+    store::load(&provider).is_some()
 }
 
 #[cfg(test)]
