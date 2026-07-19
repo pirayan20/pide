@@ -1,16 +1,9 @@
 use super::{status_from_windows, ProviderUsage, QuotaWindow, UsageStatus};
+use crate::modules::oauth;
 use serde_json::Value;
 
 const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage"; // confirmed in Task 1
 const OAUTH_BETA: &str = "oauth-2025-04-20"; // confirmed in Task 1
-
-pub fn parse_claude_creds(json: &str) -> Option<String> {
-    let v: Value = serde_json::from_str(json).ok()?;
-    v.get("claudeAiOauth")?
-        .get("accessToken")?
-        .as_str()
-        .map(str::to_string)
-}
 
 fn window(body: &Value, key: &str, label: &str) -> Option<QuotaWindow> {
     let node = body.get(key)?;
@@ -43,24 +36,14 @@ pub fn parse_claude_usage(body: &Value) -> (Vec<QuotaWindow>, Option<String>, Op
     (windows, account, plan)
 }
 
-// Read the OAuth token from Keychain (macOS) or the credentials file (Linux/Windows).
-fn read_token() -> Option<String> {
-    #[cfg(target_os = "macos")]
-    {
-        let out = std::process::Command::new("security")
-            .args(["find-generic-password", "-s", "Claude Code-credentials", "-w"])
-            .output()
-            .ok()?;
-        if out.status.success() {
-            return parse_claude_creds(String::from_utf8_lossy(&out.stdout).trim());
-        }
-        None
+fn access_token() -> Option<String> {
+    let mut t = oauth::store::load("claude")?;
+    if oauth::store::is_expired(&t, now_ms()) {
+        let cfg = oauth::provider_config("claude")?;
+        t = oauth::token::refresh(&cfg, &t.refresh)?;
+        oauth::store::save("claude", &t);
     }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let path = dirs::home_dir()?.join(".claude/.credentials.json");
-        parse_claude_creds(&std::fs::read_to_string(path).ok()?)
-    }
+    Some(t.access)
 }
 
 fn now_ms() -> i64 {
@@ -75,11 +58,15 @@ fn usage(status: UsageStatus, windows: Vec<QuotaWindow>, account: Option<String>
 }
 
 pub fn fetch_claude() -> ProviderUsage {
-    let Some(token) = read_token() else {
-        return usage(UsageStatus::SignedOut, vec![], None, None);
+    let Some(access) = access_token() else {
+        return match oauth::store::load("claude") {
+            Some(_) => usage(UsageStatus::AuthExpired, vec![], None, None),
+            None => usage(UsageStatus::SignedOut, vec![], None, None),
+        };
     };
     let client = match reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
+        .user_agent("claude-code/2.1.207")
         .build()
     {
         Ok(c) => c,
@@ -87,7 +74,7 @@ pub fn fetch_claude() -> ProviderUsage {
     };
     let resp = client
         .get(USAGE_URL)
-        .bearer_auth(&token)
+        .bearer_auth(&access)
         .header("anthropic-beta", OAUTH_BETA)
         .send();
     match resp {
@@ -114,17 +101,6 @@ pub fn fetch_claude() -> ProviderUsage {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn extracts_oauth_token() {
-        let json = r#"{"claudeAiOauth":{"accessToken":"sk-tok-123","refreshToken":"r"}}"#;
-        assert_eq!(parse_claude_creds(json).as_deref(), Some("sk-tok-123"));
-    }
-
-    #[test]
-    fn missing_token_is_none() {
-        assert!(parse_claude_creds(r#"{"other":true}"#).is_none());
-    }
 
     #[test]
     fn parses_three_windows_account_and_plan() {
