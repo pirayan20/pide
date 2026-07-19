@@ -2,6 +2,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use sha2::{Digest, Sha256};
 
 pub mod store;
+pub mod token;
 
 pub fn random_urlsafe(n_bytes: usize) -> String {
     let mut buf = vec![0u8; n_bytes];
