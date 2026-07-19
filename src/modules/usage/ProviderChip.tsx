@@ -35,35 +35,41 @@ export function ProviderChip({ usage }: { usage: ProviderUsage }) {
 
   return (
     <Popover>
-      <PopoverTrigger asChild>
-        <span className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[10.5px]">
-          <AgentIcon agent={usage.provider} size={12} />
-          {top ? (
-            <span className="relative h-1 w-10 overflow-hidden rounded-full bg-muted">
-              <span
-                className={`absolute inset-y-0 left-0 ${barColor(usage.status)}`}
-                style={{
-                  width: `${Math.min(100, Math.max(0, top.used_pct))}%`,
-                }}
-              />
-            </span>
-          ) : null}
-          <span className="whitespace-nowrap text-muted-foreground">
-            {text}
-          </span>
+      <span className="flex shrink-0 items-center gap-1.5 text-[10.5px]">
+        <PopoverTrigger asChild>
           <button
             type="button"
-            aria-label={`Refresh ${usage.provider} usage`}
-            className="text-muted-foreground/70 hover:text-foreground"
-            onClick={(e) => {
-              e.stopPropagation();
-              void refresh(usage.provider);
-            }}
+            aria-label={`${usage.provider} usage details`}
+            className="flex cursor-pointer items-center gap-1.5"
           >
-            <HugeiconsIcon icon={RefreshIcon} size={11} strokeWidth={2} />
+            <AgentIcon agent={usage.provider} size={12} />
+            {top ? (
+              <span className="relative h-1 w-10 overflow-hidden rounded-full bg-muted">
+                <span
+                  className={`absolute inset-y-0 left-0 ${barColor(usage.status)}`}
+                  style={{
+                    width: `${Math.min(100, Math.max(0, top.used_pct))}%`,
+                  }}
+                />
+              </span>
+            ) : null}
+            <span className="whitespace-nowrap text-muted-foreground">
+              {text}
+            </span>
           </button>
-        </span>
-      </PopoverTrigger>
+        </PopoverTrigger>
+        <button
+          type="button"
+          aria-label={`Refresh ${usage.provider} usage`}
+          className="text-muted-foreground/70 hover:text-foreground"
+          onClick={(e) => {
+            e.stopPropagation();
+            void refresh(usage.provider);
+          }}
+        >
+          <HugeiconsIcon icon={RefreshIcon} size={11} strokeWidth={2} />
+        </button>
+      </span>
       <PopoverContent side="top" align="end" className="p-3">
         <UsagePopover usage={usage} />
       </PopoverContent>

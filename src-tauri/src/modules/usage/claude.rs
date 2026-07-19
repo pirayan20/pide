@@ -78,7 +78,14 @@ pub fn fetch_claude() -> ProviderUsage {
     let Some(token) = read_token() else {
         return usage(UsageStatus::SignedOut, vec![], None, None);
     };
-    let resp = reqwest::blocking::Client::new()
+    let client = match reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return usage(UsageStatus::Unavailable, vec![], None, None),
+    };
+    let resp = client
         .get(USAGE_URL)
         .bearer_auth(&token)
         .header("anthropic-beta", OAUTH_BETA)
@@ -90,7 +97,13 @@ pub fn fetch_claude() -> ProviderUsage {
         Ok(r) if r.status().is_success() => match r.json::<Value>() {
             Ok(body) => {
                 let (windows, account, plan) = parse_claude_usage(&body);
-                usage(status_from_windows(&windows), windows, account, plan)
+                if windows.is_empty() {
+                    // 200 with no windows the parser recognizes: degrade to
+                    // Unavailable instead of rendering a blank chip.
+                    usage(UsageStatus::Unavailable, windows, account, plan)
+                } else {
+                    usage(status_from_windows(&windows), windows, account, plan)
+                }
             }
             Err(_) => usage(UsageStatus::Unavailable, vec![], None, None),
         },
