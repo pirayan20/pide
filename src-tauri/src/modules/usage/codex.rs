@@ -14,6 +14,7 @@ const TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const USAGE_URL: &str = "https://chatgpt.com/backend-api/codex/usage";
 
 struct CodexAuth {
+    access_token: Option<String>,
     refresh_token: String,
     account_id: Option<String>,
 }
@@ -22,6 +23,7 @@ fn parse_codex_auth(json_str: &str) -> Option<CodexAuth> {
     let v: Value = serde_json::from_str(json_str).ok()?;
     let tokens = v.get("tokens")?;
     Some(CodexAuth {
+        access_token: tokens.get("access_token").and_then(Value::as_str).map(str::to_string),
         refresh_token: tokens.get("refresh_token")?.as_str()?.to_string(),
         account_id: tokens.get("account_id").and_then(Value::as_str).map(str::to_string),
     })
@@ -120,6 +122,38 @@ fn usage(
     ProviderUsage { provider: "codex".into(), status, account, plan, windows, fetched_at: now_ms() }
 }
 
+enum Outcome {
+    Ok(ProviderUsage),
+    Unauthorized,
+    Failed,
+}
+
+fn fetch_usage(c: &reqwest::blocking::Client, access: &str, account_id: &Option<String>) -> Outcome {
+    let mut req = c
+        .get(USAGE_URL)
+        .bearer_auth(access)
+        .header("User-Agent", "codex_cli_rs")
+        .header("originator", "codex_cli_rs");
+    if let Some(id) = account_id {
+        req = req.header("chatgpt-account-id", id);
+    }
+    match req.send() {
+        Ok(r) if r.status() == reqwest::StatusCode::UNAUTHORIZED => Outcome::Unauthorized,
+        Ok(r) if r.status().is_success() => match r.json::<Value>() {
+            Ok(body) => {
+                let (windows, account, plan) = parse_codex_usage(&body);
+                if windows.is_empty() {
+                    Outcome::Ok(usage(UsageStatus::Unavailable, vec![], account, plan))
+                } else {
+                    Outcome::Ok(usage(status_from_windows(&windows), windows, account, plan))
+                }
+            }
+            Err(_) => Outcome::Failed,
+        },
+        _ => Outcome::Failed,
+    }
+}
+
 pub fn fetch_codex() -> ProviderUsage {
     let Some(auth) = read_auth() else {
         return usage(UsageStatus::SignedOut, vec![], None, None);
@@ -129,34 +163,25 @@ pub fn fetch_codex() -> ProviderUsage {
     else {
         return usage(UsageStatus::Unavailable, vec![], None, None);
     };
-    // Access token in auth.json is usually expired; refresh it (read-only).
+    // Prefer the stored access token — Codex keeps it fresh while in use, so no
+    // refresh (and no refresh-token rotation) is needed in the common case.
+    // Refreshing every poll would rotate auth.json's token out from under us and
+    // fail on the next poll ("Sign in again" while actively using Codex).
+    if let Some(access) = &auth.access_token {
+        match fetch_usage(&client, access, &auth.account_id) {
+            Outcome::Ok(pu) => return pu,
+            Outcome::Failed => return usage(UsageStatus::Unavailable, vec![], None, None),
+            Outcome::Unauthorized => {} // expired — refresh once below
+        }
+    }
+    // Stored token missing/expired: refresh once (read-only), then retry.
     let Some(access) = refresh_access_token(&client, &auth.refresh_token) else {
         return usage(UsageStatus::AuthExpired, vec![], None, None);
     };
-    let mut req = client
-        .get(USAGE_URL)
-        .bearer_auth(&access)
-        .header("User-Agent", "codex_cli_rs")
-        .header("originator", "codex_cli_rs");
-    if let Some(id) = &auth.account_id {
-        req = req.header("chatgpt-account-id", id);
-    }
-    match req.send() {
-        Ok(r) if r.status() == reqwest::StatusCode::UNAUTHORIZED => {
-            usage(UsageStatus::AuthExpired, vec![], None, None)
-        }
-        Ok(r) if r.status().is_success() => match r.json::<Value>() {
-            Ok(body) => {
-                let (windows, account, plan) = parse_codex_usage(&body);
-                if windows.is_empty() {
-                    usage(UsageStatus::Unavailable, vec![], account, plan)
-                } else {
-                    usage(status_from_windows(&windows), windows, account, plan)
-                }
-            }
-            Err(_) => usage(UsageStatus::Unavailable, vec![], None, None),
-        },
-        _ => usage(UsageStatus::Unavailable, vec![], None, None),
+    match fetch_usage(&client, &access, &auth.account_id) {
+        Outcome::Ok(pu) => pu,
+        Outcome::Unauthorized => usage(UsageStatus::AuthExpired, vec![], None, None),
+        Outcome::Failed => usage(UsageStatus::Unavailable, vec![], None, None),
     }
 }
 
@@ -165,10 +190,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_auth_extracts_refresh_and_account() {
-        let a = parse_codex_auth(r#"{"tokens":{"refresh_token":"rt-1","account_id":"acc-1"}}"#).unwrap();
+    fn parse_auth_extracts_tokens_and_account() {
+        let a = parse_codex_auth(
+            r#"{"tokens":{"access_token":"at-1","refresh_token":"rt-1","account_id":"acc-1"}}"#,
+        )
+        .unwrap();
+        assert_eq!(a.access_token.as_deref(), Some("at-1"));
         assert_eq!(a.refresh_token, "rt-1");
         assert_eq!(a.account_id.as_deref(), Some("acc-1"));
+    }
+
+    #[test]
+    fn parse_auth_access_token_optional() {
+        let a = parse_codex_auth(r#"{"tokens":{"refresh_token":"rt-1"}}"#).unwrap();
+        assert!(a.access_token.is_none());
+        assert_eq!(a.refresh_token, "rt-1");
     }
 
     #[test]
