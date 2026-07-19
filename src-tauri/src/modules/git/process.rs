@@ -358,7 +358,7 @@ fn classify_auth_error(stderr: &str) -> Option<GitError> {
     if lower.contains("could not read username")
         || lower.contains("could not read password")
         || lower.contains("authentication failed")
-        || lower.contains("permission denied (publickey)")
+        || lower.contains("permission denied (publickey")
         || lower.contains("invalid credentials")
     {
         return Some(GitError::AuthRequired(

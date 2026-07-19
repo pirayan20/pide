@@ -6,7 +6,10 @@ import {
   type GitStatusSnapshot,
 } from "@/lib/native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { SourceControlSummary } from "./useSourceControl";
+import type {
+  SourceControlRemoteAction,
+  SourceControlSummary,
+} from "./useSourceControl";
 
 type PanelState = "closed" | "loading" | "no-repo" | "ready" | "error";
 type DiffMode = "+" | "-";
@@ -52,6 +55,20 @@ export type PendingDiscard = {
   label: string;
 };
 
+export type SourceControlLastOperation = {
+  label: string;
+  ok: boolean;
+  at: number;
+};
+
+// Git's unmerged XY porcelain codes — the only reliable signal for a
+// conflicted file since GitChangedFile has no dedicated "conflicted" flag.
+const UNMERGED_CODES = new Set(["DD", "AU", "UD", "UA", "DU", "AA", "UU"]);
+
+function isConflicted(file: GitChangedFile): boolean {
+  return UNMERGED_CODES.has(`${file.indexStatus}${file.worktreeStatus}`);
+}
+
 type SourceControlPanelState = {
   panelState: PanelState;
   repo: GitRepoInfo | null;
@@ -68,8 +85,8 @@ type SourceControlPanelState = {
   fileEntries: SourceControlFileEntry[];
   headerCheckState: CheckState;
   allClean: boolean;
-  canPush: boolean;
-  pushHint: string | null;
+  conflictedCount: number;
+  lastOperation: SourceControlLastOperation | null;
   selectionTransition: SelectionTransition;
   stagedEmptyText: string;
   unstagedEmptyText: string;
@@ -90,7 +107,7 @@ type SourceControlPanelState = {
   stageAllEntries: () => Promise<void>;
   unstageAllEntries: () => Promise<void>;
   commit: () => Promise<void>;
-  push: () => Promise<void>;
+  runRemote: (action: SourceControlRemoteAction) => Promise<void>;
 };
 
 function normalizeError(error: unknown): string {
@@ -289,6 +306,8 @@ export function useSourceControlPanel(
     | { scope: "all"; entries: SourceControlEntry[] }
     | null
   >(null);
+  const [lastOperation, setLastOperation] =
+    useState<SourceControlLastOperation | null>(null);
   const selectedRef = useRef<DiffSelection | null>(null);
   const reconcileTimerRef = useRef(0);
 
@@ -351,20 +370,14 @@ export function useSourceControlPanel(
   }, [fileEntries]);
 
   const allClean = stagedEntries.length === 0 && unstagedEntries.length === 0;
-  const canPush = !!status?.upstream && status.behind === 0;
-  const pushHint = useMemo(() => {
-    if (!status) return null;
-    if (!status.upstream) {
-      return "Configure or publish this branch in the terminal to enable push in this iteration.";
-    }
-    if (status.behind > 0) {
-      return "Pull remote changes before pushing local commits.";
-    }
-    if (status.ahead === 0) {
-      return `No local commits to push to ${status.upstream}.`;
-    }
-    return `Pushes to ${status.upstream}.`;
-  }, [status]);
+  // ponytail: surfaces conflicts as a status-bar count only, not a per-row
+  // badge in the file list — conflicted files remain visible there via their
+  // normal status glyph. Add a dedicated per-row indicator if that count
+  // alone isn't enough to route people to the right files.
+  const conflictedCount = useMemo(
+    () => (status?.changedFiles ?? []).filter(isConflicted).length,
+    [status],
+  );
   const stagedEmptyText = "No staged changes";
   const unstagedEmptyText = "No unstaged changes";
 
@@ -703,21 +716,32 @@ export function useSourceControlPanel(
     }
   }, [commitMessage, repo, summary]);
 
-  const push = useCallback(async () => {
-    if (!repo) return;
-    setActionMessage(null);
-    setActionError(null);
-    const result = await summary.runRemoteAction("push");
-    if (result.ok) {
-      setActionMessage(
-        status?.upstream ? `Pushed to ${status.upstream}` : "Push completed",
-      );
-      return;
-    }
-    if (result.error) {
-      setActionError(result.error);
-    }
-  }, [repo, status?.upstream, summary]);
+  const runRemote = useCallback(
+    async (action: SourceControlRemoteAction) => {
+      if (!repo) return;
+      setActionMessage(null);
+      setActionError(null);
+      const verb =
+        action === "fetch" ? "Fetch" : action === "pull" ? "Pull" : "Push";
+      const result = await summary.runRemoteAction(action);
+      if (result.ok) {
+        const detail =
+          action === "push" && status?.upstream ? ` to ${status.upstream}` : "";
+        setActionMessage(`${verb}ed${detail}`);
+        setLastOperation({ label: `${verb}ed`, ok: true, at: Date.now() });
+        return;
+      }
+      if (result.error) {
+        setActionError(result.error);
+        setLastOperation({
+          label: `${verb} failed`,
+          ok: false,
+          at: Date.now(),
+        });
+      }
+    },
+    [repo, status?.upstream, summary],
+  );
 
   const pendingDiscardView = useMemo<PendingDiscard | null>(() => {
     if (!pendingDiscard) return null;
@@ -753,8 +777,8 @@ export function useSourceControlPanel(
     fileEntries,
     headerCheckState,
     allClean,
-    canPush,
-    pushHint,
+    conflictedCount,
+    lastOperation,
     selectionTransition,
     stagedEmptyText,
     unstagedEmptyText,
@@ -775,6 +799,6 @@ export function useSourceControlPanel(
     stageAllEntries,
     unstageAllEntries,
     commit,
-    push,
+    runRemote,
   };
 }

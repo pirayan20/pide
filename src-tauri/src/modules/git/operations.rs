@@ -9,9 +9,10 @@ use crate::modules::git::process::{
 };
 use crate::modules::git::types::{
     DiscardEntry, GitBranchEntry, GitBranchListResult, GitCommitFileChange, GitCommitResult,
-    GitDiffContentResult, GitDiffResult, GitEditorBaselinesResult, GitLogEntry, GitOutput,
-    GitPanelSnapshot, GitPushResult, GitRepoInfo, GitStatusSnapshot, TextSource,
-    DEFAULT_TIMEOUT_SECS, INLINE_DIFF_MAX_BYTES, NETWORK_TIMEOUT_SECS,
+    GitDiffContentResult, GitDiffResult, GitEditorBaselinesResult, GitLogEntry, GitMergeResult,
+    GitOutput, GitPanelSnapshot, GitPushResult, GitRepoInfo, GitStashApplyResult, GitStashEntry,
+    GitStashResult, GitStatusSnapshot, TextSource, DEFAULT_TIMEOUT_SECS, INLINE_DIFF_MAX_BYTES,
+    MAX_TIMEOUT_SECS, NETWORK_TIMEOUT_SECS,
 };
 use crate::modules::git::utils::{
     authorized_repo_root, canonical_dir, resolve_within_repo, split_upstream, ResolvedGitDirectory,
@@ -1236,6 +1237,361 @@ pub fn checkout_branch(
         DEFAULT_TIMEOUT_SECS,
     )?;
     ensure_success(&output, "git checkout failed")
+}
+
+fn ref_is_safe(name: &str) -> bool {
+    let trimmed = name.trim();
+    !trimmed.is_empty() && !trimmed.starts_with('-')
+}
+
+pub fn create_branch(
+    registry: &WorkspaceRegistry,
+    repo_root: &str,
+    name: &str,
+    checkout: bool,
+    start_point: Option<&str>,
+    workspace: &WorkspaceEnv,
+) -> Result<()> {
+    let repo_root = authorized_repo_root(registry, repo_root, workspace)?;
+    ensure_git_available(&repo_root.workspace)?;
+    if !ref_is_safe(name) {
+        return Err(GitError::InvalidPath(name.into()));
+    }
+    let mut args: Vec<&str> = if checkout {
+        vec!["checkout", "-b", name]
+    } else {
+        vec!["branch", name]
+    };
+    if let Some(start) = start_point.filter(|s| !s.is_empty()) {
+        if !ref_is_safe(start) {
+            return Err(GitError::InvalidPath(start.into()));
+        }
+        args.push(start);
+    }
+    let output = run_git(
+        &repo_root.workspace,
+        Some(&repo_root.git_path),
+        args,
+        DEFAULT_TIMEOUT_SECS,
+    )?;
+    ensure_success(&output, "git branch create failed")
+}
+
+pub fn rename_branch(
+    registry: &WorkspaceRegistry,
+    repo_root: &str,
+    old_name: Option<&str>,
+    new_name: &str,
+    workspace: &WorkspaceEnv,
+) -> Result<()> {
+    let repo_root = authorized_repo_root(registry, repo_root, workspace)?;
+    ensure_git_available(&repo_root.workspace)?;
+    if !ref_is_safe(new_name) {
+        return Err(GitError::InvalidPath(new_name.into()));
+    }
+    let mut args: Vec<&str> = vec!["branch", "-m"];
+    if let Some(old) = old_name.filter(|s| !s.is_empty()) {
+        if !ref_is_safe(old) {
+            return Err(GitError::InvalidPath(old.into()));
+        }
+        args.push(old);
+    }
+    args.push(new_name);
+    let output = run_git(
+        &repo_root.workspace,
+        Some(&repo_root.git_path),
+        args,
+        DEFAULT_TIMEOUT_SECS,
+    )?;
+    ensure_success(&output, "git branch rename failed")
+}
+
+pub fn delete_branch(
+    registry: &WorkspaceRegistry,
+    repo_root: &str,
+    name: &str,
+    force: bool,
+    workspace: &WorkspaceEnv,
+) -> Result<()> {
+    let repo_root = authorized_repo_root(registry, repo_root, workspace)?;
+    ensure_git_available(&repo_root.workspace)?;
+    if !ref_is_safe(name) {
+        return Err(GitError::InvalidPath(name.into()));
+    }
+    let flag = if force { "-D" } else { "-d" };
+    let output = run_git(
+        &repo_root.workspace,
+        Some(&repo_root.git_path),
+        ["branch", flag, name],
+        DEFAULT_TIMEOUT_SECS,
+    )?;
+    ensure_success(&output, "git branch delete failed")
+}
+
+fn conflicted_files(repo_root: &ResolvedGitDirectory) -> Result<Vec<String>> {
+    git_stdout_lines(
+        &repo_root.workspace,
+        &repo_root.git_path,
+        ["diff", "--name-only", "--diff-filter=U"],
+    )
+}
+
+/// Conflicted paths that appeared *since* `before` — so a merge/stash-apply that
+/// failed for another reason while the tree already had unresolved conflicts is
+/// not misreported as a fresh conflict.
+fn new_conflicted_files(
+    repo_root: &ResolvedGitDirectory,
+    before: &[String],
+) -> Result<Vec<String>> {
+    let after = conflicted_files(repo_root)?;
+    Ok(after
+        .into_iter()
+        .filter(|f| !before.iter().any(|b| b == f))
+        .collect())
+}
+
+pub fn merge_branch(
+    registry: &WorkspaceRegistry,
+    repo_root: &str,
+    branch: &str,
+    workspace: &WorkspaceEnv,
+) -> Result<GitMergeResult> {
+    let repo_root = authorized_repo_root(registry, repo_root, workspace)?;
+    ensure_git_available(&repo_root.workspace)?;
+    if !ref_is_safe(branch) {
+        return Err(GitError::InvalidPath(branch.into()));
+    }
+    let before = conflicted_files(&repo_root)?;
+    // ponytail: MAX_TIMEOUT_SECS (not DEFAULT) — a timer kill mid-merge can leave
+    // MERGE_HEAD + a partial index; a large merge needs the longer budget.
+    let output = run_git(
+        &repo_root.workspace,
+        Some(&repo_root.git_path),
+        ["merge", "--no-edit", branch],
+        MAX_TIMEOUT_SECS,
+    )?;
+    if output.timed_out {
+        return Err(GitError::TimedOut("git merge"));
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if output.exit_code == Some(0) {
+        return Ok(GitMergeResult {
+            merged: true,
+            had_conflicts: false,
+            conflicted_files: Vec::new(),
+            message: stdout,
+        });
+    }
+    // Merge conflicts leave a non-zero exit; distinguish that from a real
+    // failure (bad branch name, mid-merge already, etc.) by checking for *new*
+    // unmerged paths. Don't abort — conflicts must stay in the working tree.
+    let conflicted = new_conflicted_files(&repo_root, &before)?;
+    if !conflicted.is_empty() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let message = if !stdout.is_empty() { stdout } else { stderr };
+        return Ok(GitMergeResult {
+            merged: false,
+            had_conflicts: true,
+            conflicted_files: conflicted,
+            message,
+        });
+    }
+    ensure_success(&output, "git merge failed")?;
+    unreachable!("ensure_success returns Err for non-zero exit code")
+}
+
+pub fn stash_save(
+    registry: &WorkspaceRegistry,
+    repo_root: &str,
+    message: Option<&str>,
+    include_untracked: bool,
+    workspace: &WorkspaceEnv,
+) -> Result<GitStashResult> {
+    let repo_root = authorized_repo_root(registry, repo_root, workspace)?;
+    ensure_git_available(&repo_root.workspace)?;
+    let mut args: Vec<OsString> = vec!["stash".into(), "push".into()];
+    if include_untracked {
+        args.push("-u".into());
+    }
+    if let Some(m) = message.filter(|m| !m.is_empty()) {
+        args.push("-m".into());
+        args.push(m.into());
+    }
+    let output = run_git(
+        &repo_root.workspace,
+        Some(&repo_root.git_path),
+        args,
+        MAX_TIMEOUT_SECS,
+    )?;
+    ensure_success(&output, "git stash push failed")?;
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stashed = !stdout.contains("No local changes to save");
+    // Capture the newly-created stash's commit SHA so callers (e.g. the
+    // "leave changes" branch-switch flow) can restore exactly this stash by
+    // content even if the stash list shifts underneath them.
+    let sha = if stashed {
+        git_stdout_lines(
+            &repo_root.workspace,
+            &repo_root.git_path,
+            ["rev-parse", "stash@{0}"],
+        )?
+        .into_iter()
+        .next()
+    } else {
+        None
+    };
+    Ok(GitStashResult {
+        stashed,
+        sha,
+        message: stdout,
+    })
+}
+
+// git stash list, formatted as: <commit-sha>\x1f<stash@{N}>\x1f<reflog subject>
+const STASH_LIST_FORMAT: &str = "--format=%H%x1f%gd%x1f%gs";
+
+fn parse_stash_line(line: &str) -> Option<GitStashEntry> {
+    // "<sha>\x1fstash@{0}\x1fWIP on main: 1234567 subject" (or "On main: custom message")
+    let mut parts = line.splitn(3, '\u{1f}');
+    let sha = parts.next()?.to_string();
+    let index: u32 = parts
+        .next()?
+        .strip_prefix("stash@{")?
+        .strip_suffix('}')?
+        .parse()
+        .ok()?;
+    let subject = parts.next().unwrap_or("");
+    let (branch, message) = if let Some(after) = subject.strip_prefix("WIP on ") {
+        let (b, m) = after.split_once(": ").unwrap_or((after, ""));
+        (Some(b.to_string()), m.to_string())
+    } else if let Some(after) = subject.strip_prefix("On ") {
+        let (b, m) = after.split_once(": ").unwrap_or((after, ""));
+        (Some(b.to_string()), m.to_string())
+    } else {
+        (None, subject.to_string())
+    };
+    Some(GitStashEntry {
+        index,
+        sha,
+        message,
+        branch,
+    })
+}
+
+pub fn stash_list(
+    registry: &WorkspaceRegistry,
+    repo_root: &str,
+    workspace: &WorkspaceEnv,
+) -> Result<Vec<GitStashEntry>> {
+    let repo_root = authorized_repo_root(registry, repo_root, workspace)?;
+    ensure_git_available(&repo_root.workspace)?;
+    let lines = git_stdout_lines(
+        &repo_root.workspace,
+        &repo_root.git_path,
+        ["stash", "list", STASH_LIST_FORMAT],
+    )?;
+    Ok(lines
+        .iter()
+        .filter_map(|line| parse_stash_line(line))
+        .collect())
+}
+
+/// Resolve a stash commit SHA to its current `stash@{N}` reference. The index a
+/// caller saw at list-time can shift if the stash list changes before the action
+/// runs, so ops address stashes by content-SHA and re-resolve the index here —
+/// preventing apply/drop from ever hitting the wrong stash.
+fn resolve_stash_ref(repo_root: &ResolvedGitDirectory, sha: &str) -> Result<Option<String>> {
+    let lines = git_stdout_lines(
+        &repo_root.workspace,
+        &repo_root.git_path,
+        ["stash", "list", "--format=%H%x1f%gd"],
+    )?;
+    for line in &lines {
+        let mut parts = line.splitn(2, '\u{1f}');
+        if parts.next() == Some(sha) {
+            if let Some(gd) = parts.next() {
+                return Ok(Some(gd.to_string()));
+            }
+        }
+    }
+    Ok(None)
+}
+
+pub fn stash_apply(
+    registry: &WorkspaceRegistry,
+    repo_root: &str,
+    sha: &str,
+    pop: bool,
+    workspace: &WorkspaceEnv,
+) -> Result<GitStashApplyResult> {
+    let repo_root = authorized_repo_root(registry, repo_root, workspace)?;
+    ensure_git_available(&repo_root.workspace)?;
+    if !sha_is_safe(sha) {
+        return Err(GitError::InvalidPath(sha.into()));
+    }
+    let Some(stash_ref) = resolve_stash_ref(&repo_root, sha)? else {
+        return Err(GitError::command(
+            "git stash apply",
+            "that stash no longer exists",
+        ));
+    };
+    let before = conflicted_files(&repo_root)?;
+    let subcmd = if pop { "pop" } else { "apply" };
+    let output = run_git(
+        &repo_root.workspace,
+        Some(&repo_root.git_path),
+        ["stash", subcmd, &stash_ref],
+        MAX_TIMEOUT_SECS,
+    )?;
+    if output.timed_out {
+        return Err(GitError::TimedOut("git stash apply"));
+    }
+    if output.exit_code == Some(0) {
+        return Ok(GitStashApplyResult {
+            applied: true,
+            had_conflicts: false,
+            conflicted_files: Vec::new(),
+        });
+    }
+    // A `pop` that conflicts keeps the stash (git does not drop it), so only
+    // report conflicts this apply actually introduced; otherwise it's a real
+    // failure (e.g. nothing applied because the tree was already mid-merge).
+    let conflicted = new_conflicted_files(&repo_root, &before)?;
+    if !conflicted.is_empty() {
+        return Ok(GitStashApplyResult {
+            applied: true,
+            had_conflicts: true,
+            conflicted_files: conflicted,
+        });
+    }
+    ensure_success(&output, "git stash apply failed")?;
+    unreachable!("ensure_success returns Err for non-zero exit code")
+}
+
+pub fn stash_drop(
+    registry: &WorkspaceRegistry,
+    repo_root: &str,
+    sha: &str,
+    workspace: &WorkspaceEnv,
+) -> Result<()> {
+    let repo_root = authorized_repo_root(registry, repo_root, workspace)?;
+    ensure_git_available(&repo_root.workspace)?;
+    if !sha_is_safe(sha) {
+        return Err(GitError::InvalidPath(sha.into()));
+    }
+    let Some(stash_ref) = resolve_stash_ref(&repo_root, sha)? else {
+        return Err(GitError::command(
+            "git stash drop",
+            "that stash no longer exists",
+        ));
+    };
+    let output = run_git(
+        &repo_root.workspace,
+        Some(&repo_root.git_path),
+        ["stash", "drop", &stash_ref],
+        DEFAULT_TIMEOUT_SECS,
+    )?;
+    ensure_success(&output, "git stash drop failed")
 }
 
 #[cfg(test)]

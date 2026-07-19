@@ -709,3 +709,91 @@ fn list_branches_keeps_current_branch_local_and_surfaces_worktrees() {
     assert!(!feature[0].is_head);
     assert!(feature[0].worktree_path.is_some());
 }
+
+#[test]
+fn create_branch_then_delete_round_trip() {
+    if skip_if_no_git() {
+        return;
+    }
+    let fx = GitRepoFixture::new();
+    fx.write_file("a.txt", "a\n");
+    fx.run_git(&["add", "."]);
+    fx.run_git(&["commit", "-q", "-m", "init"]);
+
+    operations::create_branch(
+        &fx.registry,
+        &fx.repo_str(),
+        "feature",
+        false,
+        None,
+        &fx.workspace,
+    )
+    .expect("create_branch");
+    let branches =
+        operations::list_branches(&fx.registry, &fx.repo_str(), &fx.workspace).unwrap();
+    assert!(branches.branches.iter().any(|b| b.name == "feature"));
+
+    operations::delete_branch(&fx.registry, &fx.repo_str(), "feature", false, &fx.workspace)
+        .expect("delete_branch");
+    let branches =
+        operations::list_branches(&fx.registry, &fx.repo_str(), &fx.workspace).unwrap();
+    assert!(!branches.branches.iter().any(|b| b.name == "feature"));
+}
+
+#[test]
+fn stash_save_then_apply_restores_change() {
+    if skip_if_no_git() {
+        return;
+    }
+    let fx = GitRepoFixture::new();
+    fx.write_file("a.txt", "alpha\n");
+    fx.run_git(&["add", "a.txt"]);
+    fx.run_git(&["commit", "-q", "-m", "init"]);
+    fx.write_file("a.txt", "alpha\nbeta\n");
+
+    let saved = operations::stash_save(&fx.registry, &fx.repo_str(), None, false, &fx.workspace)
+        .expect("stash_save");
+    assert!(saved.stashed);
+    let content = std::fs::read_to_string(fx.repo_path.join("a.txt")).unwrap();
+    assert_eq!(content, "alpha\n");
+
+    let stashes = operations::stash_list(&fx.registry, &fx.repo_str(), &fx.workspace)
+        .expect("stash_list");
+    let sha = &stashes.first().expect("one stash").sha;
+    let applied = operations::stash_apply(&fx.registry, &fx.repo_str(), sha, false, &fx.workspace)
+        .expect("stash_apply");
+    assert!(applied.applied);
+    assert!(!applied.had_conflicts);
+    let content = std::fs::read_to_string(fx.repo_path.join("a.txt")).unwrap();
+    assert_eq!(content, "alpha\nbeta\n");
+}
+
+#[test]
+fn merge_conflict_returns_conflicted_files() {
+    if skip_if_no_git() {
+        return;
+    }
+    let fx = GitRepoFixture::new();
+    fx.write_file("a.txt", "base\n");
+    fx.run_git(&["add", "a.txt"]);
+    fx.run_git(&["commit", "-q", "-m", "base"]);
+
+    fx.run_git(&["checkout", "-b", "feature"]);
+    fx.write_file("a.txt", "feature change\n");
+    fx.run_git(&["add", "a.txt"]);
+    fx.run_git(&["commit", "-q", "-m", "feature change"]);
+
+    fx.run_git(&["checkout", "main"]);
+    fx.write_file("a.txt", "main change\n");
+    fx.run_git(&["add", "a.txt"]);
+    fx.run_git(&["commit", "-q", "-m", "main change"]);
+
+    let result = operations::merge_branch(&fx.registry, &fx.repo_str(), "feature", &fx.workspace)
+        .expect("merge_branch");
+    assert!(!result.merged);
+    assert!(result.had_conflicts);
+    assert_eq!(result.conflicted_files, vec!["a.txt".to_string()]);
+
+    let content = std::fs::read_to_string(fx.repo_path.join("a.txt")).unwrap();
+    assert!(content.contains("<<<<<<<"));
+}

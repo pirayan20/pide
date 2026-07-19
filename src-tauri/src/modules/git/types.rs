@@ -158,6 +158,40 @@ pub struct GitBranchListResult {
     pub branches: Vec<GitBranchEntry>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitMergeResult {
+    pub merged: bool,
+    pub had_conflicts: bool,
+    pub conflicted_files: Vec<String>,
+    pub message: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitStashResult {
+    pub stashed: bool,
+    pub sha: Option<String>,
+    pub message: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitStashEntry {
+    pub index: u32,
+    pub sha: String,
+    pub message: String,
+    pub branch: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitStashApplyResult {
+    pub applied: bool,
+    pub had_conflicts: bool,
+    pub conflicted_files: Vec<String>,
+}
+
 pub(crate) struct GitOutput {
     pub(crate) stdout: Vec<u8>,
     pub(crate) stderr: Vec<u8>,

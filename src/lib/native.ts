@@ -104,6 +104,32 @@ export type GitBranchListResult = {
   branches: GitBranchEntry[];
 };
 
+export type GitMergeResult = {
+  merged: boolean;
+  hadConflicts: boolean;
+  conflictedFiles: string[];
+  message: string;
+};
+
+export type GitStashResult = {
+  stashed: boolean;
+  sha: string | null;
+  message: string;
+};
+
+export type GitStashEntry = {
+  index: number;
+  sha: string;
+  message: string;
+  branch: string | null;
+};
+
+export type GitStashApplyResult = {
+  applied: boolean;
+  hadConflicts: boolean;
+  conflictedFiles: string[];
+};
+
 const workspace = () => currentWorkspaceEnv();
 
 export type GitChangedEvent = { repoRoot: string };
@@ -248,6 +274,72 @@ export const native = {
     invokeGitMutation<void>("git_checkout_branch", repoRoot, {
       repoRoot,
       branch,
+      workspace: workspace(),
+    }),
+  gitCreateBranch: (
+    repoRoot: string,
+    name: string,
+    checkout: boolean,
+    startPoint: string | null = null,
+  ) =>
+    invokeGitMutation<void>("git_create_branch", repoRoot, {
+      repoRoot,
+      name,
+      checkout,
+      startPoint,
+      workspace: workspace(),
+    }),
+  gitRenameBranch: (
+    repoRoot: string,
+    oldName: string | null,
+    newName: string,
+  ) =>
+    invokeGitMutation<void>("git_rename_branch", repoRoot, {
+      repoRoot,
+      oldName,
+      newName,
+      workspace: workspace(),
+    }),
+  gitDeleteBranch: (repoRoot: string, name: string, force: boolean) =>
+    invokeGitMutation<void>("git_delete_branch", repoRoot, {
+      repoRoot,
+      name,
+      force,
+      workspace: workspace(),
+    }),
+  gitMergeBranch: (repoRoot: string, branch: string) =>
+    invokeGitMutation<GitMergeResult>("git_merge_branch", repoRoot, {
+      repoRoot,
+      branch,
+      workspace: workspace(),
+    }),
+  gitStashSave: (
+    repoRoot: string,
+    message: string | null,
+    includeUntracked: boolean,
+  ) =>
+    invokeGitMutation<GitStashResult>("git_stash_save", repoRoot, {
+      repoRoot,
+      message,
+      includeUntracked,
+      workspace: workspace(),
+    }),
+  gitStashList: (repoRoot: string) =>
+    invoke<GitStashEntry[]>("git_stash_list", {
+      repoRoot,
+      workspace: workspace(),
+    }),
+  gitStashApply: (repoRoot: string, sha: string, pop: boolean) =>
+    invokeGitMutation<GitStashApplyResult>("git_stash_apply", repoRoot, {
+      repoRoot,
+      sha,
+      pop,
+      workspace: workspace(),
+    }),
+  gitStashDrop: (repoRoot: string, sha: string) =>
+    invokeGitMutation<void>("git_stash_drop", repoRoot, {
+      repoRoot,
+      sha,
       workspace: workspace(),
     }),
 };

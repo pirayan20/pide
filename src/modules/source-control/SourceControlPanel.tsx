@@ -18,14 +18,28 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
@@ -37,7 +51,12 @@ import {
 } from "@/components/ui/tooltip";
 import { IS_MAC } from "@/lib/platform";
 import { cn } from "@/lib/utils";
-import { type GitBranchEntry, native } from "@/lib/native";
+import {
+  type GitBranchEntry,
+  type GitStashEntry,
+  type GitStatusSnapshot,
+  native,
+} from "@/lib/native";
 import {
   copyToClipboard,
   revealInFinder,
@@ -54,11 +73,17 @@ import {
   ArrowRight01Icon,
   ArrowUp01Icon,
   CheckmarkCircle01Icon,
+  Delete02Icon,
   Download01Icon,
+  Edit02Icon,
   Folder01Icon,
   FolderCloudIcon,
   FolderGitTwoIcon,
   GitBranchIcon,
+  GitMergeIcon,
+  MoreVerticalIcon,
+  Package01Icon,
+  PlusSignIcon,
   Refresh01Icon,
   RemoveSquareIcon,
   Tick02Icon,
@@ -75,11 +100,15 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import type { SourceControlSummary } from "./useSourceControl";
+import type {
+  SourceControlRemoteAction,
+  SourceControlSummary,
+} from "./useSourceControl";
 import {
   useSourceControlPanel,
   type CheckState,
   type SourceControlFileEntry,
+  type SourceControlLastOperation,
 } from "./useSourceControlPanel";
 
 type Props = {
@@ -156,24 +185,65 @@ function checkboxValue(state: CheckState): boolean | "indeterminate" {
   return false;
 }
 
+function relativeTime(at: number): string {
+  const s = Math.floor((Date.now() - at) / 1000);
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+function isAuthError(message: string): boolean {
+  return message.toLowerCase().includes("authentication required");
+}
+
+const REMOTE_ACTION_LABELS: Record<SourceControlRemoteAction, string> = {
+  fetch: "Fetch origin",
+  pull: "Pull origin",
+  push: "Push origin",
+};
+
+type PendingSwitch =
+  | { kind: "checkout"; branch: string }
+  | { kind: "create"; name: string };
+
 function BranchDropdown({
   repoRoot,
   repoLabel,
+  currentBranch,
+  changedCount,
+  busy,
   onNavigateToPath,
   onRefresh,
+  onConflicts,
 }: {
   repoRoot: string | null;
   repoLabel: string;
+  currentBranch: string | null;
+  changedCount: number;
+  busy: boolean;
   onNavigateToPath?: (path: string) => void;
   onRefresh: () => void;
+  onConflicts: (title: string, files: string[]) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [branches, setBranches] = useState<GitBranchEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [checkingOut, setCheckingOut] = useState(false);
+  const [busyLocal, setBusyLocal] = useState(false);
+  const [newBranchOpen, setNewBranchOpen] = useState(false);
+  const [newBranchName, setNewBranchName] = useState("");
+  const [renameTarget, setRenameTarget] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [pendingSwitch, setPendingSwitch] = useState<PendingSwitch | null>(
+    null,
+  );
+  const [switchChoice, setSwitchChoice] = useState<"bring" | "leave">("bring");
   const requestRef = useRef(0);
-  const checkoutInFlight = useRef(false);
+  const opInFlight = useRef(false);
 
   const loadBranches = useCallback(async () => {
     const id = ++requestRef.current;
@@ -206,24 +276,180 @@ function BranchDropdown({
     }
   }, [open, loadBranches]);
 
-  const handleCheckout = useCallback(
-    async (branch: string) => {
-      if (!repoRoot || checkoutInFlight.current) return;
-      checkoutInFlight.current = true;
-      setCheckingOut(true);
+  const runOp = useCallback(async (fn: () => Promise<unknown>) => {
+    if (opInFlight.current) return;
+    opInFlight.current = true;
+    setBusyLocal(true);
+    try {
+      await fn();
+    } finally {
+      opInFlight.current = false;
+      setBusyLocal(false);
+    }
+  }, []);
+
+  // Return true on success so the bring/leave flow can tell whether a checkout
+  // that followed a stash actually landed (and roll the stash back if it didn't).
+  const performCheckout = useCallback(
+    async (branch: string): Promise<boolean> => {
+      if (!repoRoot) return false;
       try {
         await native.gitCheckoutBranch(repoRoot, branch);
         setBranches([]);
         setOpen(false);
         onRefresh();
+        return true;
       } catch (e) {
         toast.error(String(e));
-      } finally {
-        checkoutInFlight.current = false;
-        setCheckingOut(false);
+        return false;
       }
     },
     [repoRoot, onRefresh],
+  );
+
+  const performCreate = useCallback(
+    async (name: string): Promise<boolean> => {
+      if (!repoRoot) return false;
+      try {
+        await native.gitCreateBranch(repoRoot, name, true, null);
+        setNewBranchName("");
+        setOpen(false);
+        onRefresh();
+        return true;
+      } catch (e) {
+        toast.error(String(e));
+        return false;
+      }
+    },
+    [repoRoot, onRefresh],
+  );
+
+  const requestCheckout = useCallback(
+    (branch: string) => {
+      if (branch === currentBranch) {
+        setOpen(false);
+        return;
+      }
+      if (changedCount > 0) {
+        setOpen(false);
+        setSwitchChoice("bring");
+        setPendingSwitch({ kind: "checkout", branch });
+        return;
+      }
+      void runOp(() => performCheckout(branch));
+    },
+    [changedCount, currentBranch, performCheckout, runOp],
+  );
+
+  const requestCreate = useCallback(() => {
+    const name = newBranchName.trim();
+    if (!name) return;
+    setNewBranchOpen(false);
+    if (changedCount > 0) {
+      setSwitchChoice("bring");
+      setPendingSwitch({ kind: "create", name });
+      return;
+    }
+    void runOp(() => performCreate(name));
+  }, [changedCount, newBranchName, performCreate, runOp]);
+
+  const confirmPendingSwitch = useCallback(() => {
+    if (!repoRoot || !pendingSwitch) return;
+    const target = pendingSwitch;
+    const leaveChanges = switchChoice === "leave";
+    setPendingSwitch(null);
+    void runOp(async () => {
+      try {
+        let stashedSha: string | null = null;
+        if (leaveChanges) {
+          const res = await native.gitStashSave(repoRoot, null, true);
+          stashedSha = res.stashed ? res.sha : null;
+        }
+        const ok =
+          target.kind === "checkout"
+            ? await performCheckout(target.branch)
+            : await performCreate(target.name);
+        // If we stashed the changes to "leave" them, but the switch failed, the
+        // work would be stranded in an unlabeled stash. Restore exactly that
+        // stash so the user is back where they started rather than silently
+        // losing their changes.
+        if (!ok && stashedSha) {
+          await native
+            .gitStashApply(repoRoot, stashedSha, true)
+            .catch(() => {});
+          toast.error("Branch switch failed — your changes were restored.");
+        }
+      } catch (e) {
+        toast.error(String(e));
+      }
+    });
+  }, [
+    performCheckout,
+    performCreate,
+    pendingSwitch,
+    repoRoot,
+    runOp,
+    switchChoice,
+  ]);
+
+  const openRename = useCallback((branch: string) => {
+    setRenameTarget(branch);
+    setRenameValue(branch);
+  }, []);
+
+  const confirmRename = useCallback(() => {
+    if (!repoRoot || !renameTarget) return;
+    const newName = renameValue.trim();
+    const oldName = renameTarget;
+    setRenameTarget(null);
+    if (!newName || newName === oldName) return;
+    void runOp(async () => {
+      try {
+        await native.gitRenameBranch(repoRoot, oldName, newName);
+        onRefresh();
+      } catch (e) {
+        toast.error(String(e));
+      }
+    });
+  }, [onRefresh, renameTarget, renameValue, repoRoot, runOp]);
+
+  const confirmDelete = useCallback(() => {
+    if (!repoRoot || !deleteTarget) return;
+    const name = deleteTarget;
+    setDeleteTarget(null);
+    void runOp(async () => {
+      try {
+        await native.gitDeleteBranch(repoRoot, name, false);
+        onRefresh();
+      } catch (e) {
+        toast.error(String(e));
+      }
+    });
+  }, [deleteTarget, onRefresh, repoRoot, runOp]);
+
+  const handleMerge = useCallback(
+    (branch: string) => {
+      if (!repoRoot) return;
+      void runOp(async () => {
+        try {
+          const result = await native.gitMergeBranch(repoRoot, branch);
+          onRefresh();
+          if (result.hadConflicts) {
+            onConflicts(
+              `Merge conflicts merging "${branch}"`,
+              result.conflictedFiles,
+            );
+          } else if (result.merged) {
+            toast.success(result.message || `Merged ${branch}.`);
+          } else {
+            toast.error(result.message || `Merge of ${branch} did nothing.`);
+          }
+        } catch (e) {
+          toast.error(String(e));
+        }
+      });
+    },
+    [onConflicts, onRefresh, repoRoot, runOp],
   );
 
   const localBranches = useMemo(
@@ -235,108 +461,796 @@ function BranchDropdown({
     [branches],
   );
 
+  const disabled = busy || busyLocal;
+  const switchTargetLabel =
+    pendingSwitch?.kind === "checkout"
+      ? pendingSwitch.branch
+      : pendingSwitch?.kind === "create"
+        ? pendingSwitch.name
+        : "";
+
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          disabled={checkingOut}
-          className="inline-flex min-w-0 cursor-pointer items-center gap-1.5 rounded-md bg-foreground/5 px-2 py-1 text-[11.5px] font-medium leading-none text-foreground transition-colors hover:bg-foreground/10 disabled:cursor-default disabled:opacity-70"
-        >
-          <HugeiconsIcon
-            icon={FolderGitTwoIcon}
-            size={12}
-            strokeWidth={1.9}
-            className="shrink-0 text-muted-foreground"
-          />
-          <span className="max-w-35 truncate">{repoLabel}</span>
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-56">
-        {loading ? (
-          <div className="flex items-center gap-2 px-3 py-3 text-[11px] text-muted-foreground">
-            <Spinner className="size-3" />
-            Loading branches…
-          </div>
-        ) : error ? (
-          <div className="px-3 py-3 text-[11px] leading-snug text-destructive">
-            {error}
-          </div>
-        ) : (
-          <>
-            {localBranches.length > 0 && (
-              <>
-                <DropdownMenuLabel className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/85">
-                  Local Branches
-                </DropdownMenuLabel>
-                <DropdownMenuGroup>
-                  {localBranches.map((b) => (
-                    <DropdownMenuItem
-                      key={b.name}
-                      onSelect={() => void handleCheckout(b.name)}
-                      className="flex cursor-pointer items-center gap-2 text-[12px]"
-                    >
-                      {b.isHead ? (
-                        <HugeiconsIcon
-                          icon={Tick02Icon}
-                          size={14}
-                          strokeWidth={1.8}
-                          className="shrink-0"
-                        />
-                      ) : (
-                        <span className="w-3.5 shrink-0" />
-                      )}
-                      <span className="min-w-0 flex-1 truncate">{b.name}</span>
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuGroup>
-              </>
-            )}
-            {worktrees.length > 0 && (
-              <>
-                {localBranches.length > 0 && <DropdownMenuSeparator />}
-                <DropdownMenuLabel className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/85">
-                  Worktrees
-                </DropdownMenuLabel>
-                <DropdownMenuGroup>
-                  {worktrees.map((b) => (
-                    <DropdownMenuItem
-                      key={b.worktreePath ?? b.name}
-                      onSelect={() => {
-                        if (b.worktreePath && onNavigateToPath) {
-                          onNavigateToPath(b.worktreePath);
-                        }
-                      }}
-                      className="flex cursor-pointer items-center gap-2 text-[12px]"
-                    >
-                      <HugeiconsIcon
-                        icon={Folder01Icon}
-                        size={14}
-                        strokeWidth={1.5}
-                        className="shrink-0 text-muted-foreground"
-                      />
-                      <div className="flex min-w-0 flex-col">
-                        <span className="truncate">{b.name}</span>
-                        {b.worktreePath && (
-                          <span className="truncate text-[10px] text-muted-foreground">
-                            {b.worktreePath}
+    <>
+      <DropdownMenu open={open} onOpenChange={setOpen}>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            disabled={disabled}
+            className="inline-flex min-w-0 cursor-pointer items-center gap-1.5 rounded-md bg-foreground/5 px-2 py-1 text-[11.5px] font-medium leading-none text-foreground transition-colors hover:bg-foreground/10 disabled:cursor-default disabled:opacity-70"
+          >
+            <HugeiconsIcon
+              icon={FolderGitTwoIcon}
+              size={12}
+              strokeWidth={1.9}
+              className="shrink-0 text-muted-foreground"
+            />
+            <span className="max-w-35 truncate">{repoLabel}</span>
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-64">
+          <DropdownMenuItem
+            disabled={!repoRoot || disabled}
+            onSelect={(e) => {
+              e.preventDefault();
+              setOpen(false);
+              setNewBranchName("");
+              setNewBranchOpen(true);
+            }}
+            className="flex cursor-pointer items-center gap-2 text-[12px] font-medium"
+          >
+            <HugeiconsIcon
+              icon={PlusSignIcon}
+              size={13}
+              strokeWidth={2}
+              className="shrink-0"
+            />
+            New branch…
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          {loading ? (
+            <div className="flex items-center gap-2 px-3 py-3 text-[11px] text-muted-foreground">
+              <Spinner className="size-3" />
+              Loading branches…
+            </div>
+          ) : error ? (
+            <div className="px-3 py-3 text-[11px] leading-snug text-destructive">
+              {error}
+            </div>
+          ) : (
+            <>
+              {localBranches.length > 0 && (
+                <>
+                  <DropdownMenuLabel className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/85">
+                    Local Branches
+                  </DropdownMenuLabel>
+                  <DropdownMenuGroup>
+                    {localBranches.map((b) => (
+                      <div key={b.name} className="flex items-center gap-0.5">
+                        <DropdownMenuItem
+                          disabled={disabled}
+                          onSelect={(e) => {
+                            e.preventDefault();
+                            requestCheckout(b.name);
+                          }}
+                          className="flex flex-1 cursor-pointer items-center gap-2 text-[12px]"
+                        >
+                          {b.isHead ? (
+                            <HugeiconsIcon
+                              icon={Tick02Icon}
+                              size={14}
+                              strokeWidth={1.8}
+                              className="shrink-0"
+                            />
+                          ) : (
+                            <span className="w-3.5 shrink-0" />
+                          )}
+                          <span className="min-w-0 flex-1 truncate">
+                            {b.name}
                           </span>
-                        )}
+                        </DropdownMenuItem>
+                        <DropdownMenuSub>
+                          <DropdownMenuSubTrigger
+                            disabled={disabled}
+                            onSelect={(e) => e.preventDefault()}
+                            aria-label={`${b.name} branch actions`}
+                            className="shrink-0 !px-1.5 !py-1.5"
+                          >
+                            <HugeiconsIcon
+                              icon={MoreVerticalIcon}
+                              size={12}
+                              strokeWidth={1.9}
+                            />
+                          </DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent>
+                            {!b.isHead && (
+                              <DropdownMenuItem
+                                disabled={disabled}
+                                onSelect={() => handleMerge(b.name)}
+                                className="flex cursor-pointer items-center gap-2 text-[12px]"
+                              >
+                                <HugeiconsIcon
+                                  icon={GitMergeIcon}
+                                  size={13}
+                                  strokeWidth={1.8}
+                                  className="shrink-0"
+                                />
+                                Merge into current
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuItem
+                              disabled={disabled}
+                              onSelect={(e) => {
+                                e.preventDefault();
+                                setOpen(false);
+                                openRename(b.name);
+                              }}
+                              className="flex cursor-pointer items-center gap-2 text-[12px]"
+                            >
+                              <HugeiconsIcon
+                                icon={Edit02Icon}
+                                size={13}
+                                strokeWidth={1.8}
+                                className="shrink-0"
+                              />
+                              Rename…
+                            </DropdownMenuItem>
+                            {!b.isHead && (
+                              <DropdownMenuItem
+                                variant="destructive"
+                                disabled={disabled}
+                                onSelect={(e) => {
+                                  e.preventDefault();
+                                  setOpen(false);
+                                  setDeleteTarget(b.name);
+                                }}
+                                className="flex cursor-pointer items-center gap-2 text-[12px]"
+                              >
+                                <HugeiconsIcon
+                                  icon={Delete02Icon}
+                                  size={13}
+                                  strokeWidth={1.8}
+                                  className="shrink-0"
+                                />
+                                Delete…
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
                       </div>
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuGroup>
-              </>
-            )}
-            {branches.length === 0 && (
-              <div className="px-3 py-3 text-[11px] text-muted-foreground">
-                No branches found.
+                    ))}
+                  </DropdownMenuGroup>
+                </>
+              )}
+              {worktrees.length > 0 && (
+                <>
+                  {localBranches.length > 0 && <DropdownMenuSeparator />}
+                  <DropdownMenuLabel className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/85">
+                    Worktrees
+                  </DropdownMenuLabel>
+                  <DropdownMenuGroup>
+                    {worktrees.map((b) => (
+                      <DropdownMenuItem
+                        key={b.worktreePath ?? b.name}
+                        onSelect={() => {
+                          if (b.worktreePath && onNavigateToPath) {
+                            onNavigateToPath(b.worktreePath);
+                          }
+                        }}
+                        className="flex cursor-pointer items-center gap-2 text-[12px]"
+                      >
+                        <HugeiconsIcon
+                          icon={Folder01Icon}
+                          size={14}
+                          strokeWidth={1.5}
+                          className="shrink-0 text-muted-foreground"
+                        />
+                        <div className="flex min-w-0 flex-col">
+                          <span className="truncate">{b.name}</span>
+                          {b.worktreePath && (
+                            <span className="truncate text-[10px] text-muted-foreground">
+                              {b.worktreePath}
+                            </span>
+                          )}
+                        </div>
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuGroup>
+                </>
+              )}
+              {branches.length === 0 && (
+                <div className="px-3 py-3 text-[11px] text-muted-foreground">
+                  No branches found.
+                </div>
+              )}
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <Dialog open={newBranchOpen} onOpenChange={setNewBranchOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>New branch</DialogTitle>
+            <DialogDescription>
+              Create a new branch from{" "}
+              {currentBranch ? `"${currentBranch}"` : "the current commit"}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="scm-new-branch-name">Name</Label>
+            <Input
+              id="scm-new-branch-name"
+              autoFocus
+              value={newBranchName}
+              onChange={(e) => setNewBranchName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  requestCreate();
+                }
+              }}
+              placeholder="feature/my-branch"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNewBranchOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!newBranchName.trim()}
+              onClick={() => requestCreate()}
+            >
+              Create branch
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={renameTarget !== null}
+        onOpenChange={(o) => {
+          if (!o) setRenameTarget(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Rename branch</DialogTitle>
+            <DialogDescription>Rename "{renameTarget}".</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="scm-rename-branch-name">New name</Label>
+            <Input
+              id="scm-rename-branch-name"
+              autoFocus
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  confirmRename();
+                }
+              }}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!renameValue.trim()}
+              onClick={() => confirmRename()}
+            >
+              Rename
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={deleteTarget !== null}
+        onOpenChange={(o) => {
+          if (!o) setDeleteTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete branch?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {`Delete "${deleteTarget}"? This cannot be undone.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => confirmDelete()}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog
+        open={pendingSwitch !== null}
+        onOpenChange={(o) => {
+          if (!o) setPendingSwitch(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              You have {changedCount} uncommitted{" "}
+              {changedCount === 1 ? "change" : "changes"}
+            </DialogTitle>
+            <DialogDescription>
+              {pendingSwitch?.kind === "create"
+                ? `Creating "${switchTargetLabel}". What should happen to your changes?`
+                : `Switching to "${switchTargetLabel}". What should happen to your changes?`}
+            </DialogDescription>
+          </DialogHeader>
+          <RadioGroup
+            value={switchChoice}
+            onValueChange={(v) => setSwitchChoice(v as "bring" | "leave")}
+            className="gap-2"
+          >
+            <label
+              className={cn(
+                "flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2.5",
+                switchChoice === "bring"
+                  ? "border-primary/50 bg-primary/5"
+                  : "border-border/60",
+              )}
+            >
+              <RadioGroupItem value="bring" className="mt-0.5 shrink-0" />
+              <div className="flex min-w-0 flex-col gap-0.5">
+                <span className="truncate text-[12.5px] font-medium text-foreground">
+                  Bring my changes to {switchTargetLabel}
+                </span>
+                <span className="text-[11px] text-muted-foreground">
+                  Move the working-tree changes onto the branch you're switching
+                  to.
+                </span>
               </div>
+            </label>
+            <label
+              className={cn(
+                "flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2.5",
+                switchChoice === "leave"
+                  ? "border-primary/50 bg-primary/5"
+                  : "border-border/60",
+              )}
+            >
+              <RadioGroupItem value="leave" className="mt-0.5 shrink-0" />
+              <div className="flex min-w-0 flex-col gap-0.5">
+                <span className="truncate text-[12.5px] font-medium text-foreground">
+                  Leave my changes on {currentBranch ?? "this branch"}
+                </span>
+                <span className="text-[11px] text-muted-foreground">
+                  Stash them, then restore from the Stash menu whenever you're
+                  ready.
+                </span>
+              </div>
+            </label>
+          </RadioGroup>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingSwitch(null)}>
+              Cancel
+            </Button>
+            <Button onClick={() => confirmPendingSwitch()}>
+              {pendingSwitch?.kind === "create"
+                ? "Create branch"
+                : "Switch branch"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+function StashMenu({
+  repoRoot,
+  changedCount,
+  busy,
+  onRefresh,
+  onConflicts,
+}: {
+  repoRoot: string | null;
+  changedCount: number;
+  busy: boolean;
+  onRefresh: () => void;
+  onConflicts: (title: string, files: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [stashes, setStashes] = useState<GitStashEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busyLocal, setBusyLocal] = useState<number | "save" | null>(null);
+  const [dropTarget, setDropTarget] = useState<GitStashEntry | null>(null);
+  const requestRef = useRef(0);
+
+  const loadStashes = useCallback(async () => {
+    const id = ++requestRef.current;
+    if (!repoRoot) {
+      setStashes([]);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await native.gitStashList(repoRoot);
+      if (id !== requestRef.current) return;
+      setStashes(result);
+    } catch (e) {
+      if (id !== requestRef.current) return;
+      setError(String(e));
+      setStashes([]);
+    } finally {
+      if (id === requestRef.current) setLoading(false);
+    }
+  }, [repoRoot]);
+
+  useEffect(() => {
+    if (open) void loadStashes();
+  }, [open, loadStashes]);
+
+  const handleSave = useCallback(async () => {
+    if (!repoRoot || busyLocal !== null) return;
+    setBusyLocal("save");
+    try {
+      await native.gitStashSave(repoRoot, null, true);
+      await loadStashes();
+      onRefresh();
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setBusyLocal(null);
+    }
+  }, [busyLocal, loadStashes, onRefresh, repoRoot]);
+
+  const handleRestore = useCallback(
+    async (entry: GitStashEntry) => {
+      if (!repoRoot || busyLocal !== null) return;
+      setBusyLocal(entry.index);
+      try {
+        const result = await native.gitStashApply(repoRoot, entry.sha, true);
+        await loadStashes();
+        onRefresh();
+        if (result.hadConflicts) {
+          onConflicts(
+            `Conflicts restoring stash "${entry.message}"`,
+            result.conflictedFiles,
+          );
+        } else if (result.applied) {
+          toast.success(`Restored "${entry.message}".`);
+        }
+      } catch (e) {
+        toast.error(String(e));
+      } finally {
+        setBusyLocal(null);
+      }
+    },
+    [busyLocal, loadStashes, onConflicts, onRefresh, repoRoot],
+  );
+
+  const confirmDrop = useCallback(async () => {
+    if (!repoRoot || !dropTarget) return;
+    const target = dropTarget;
+    setDropTarget(null);
+    setBusyLocal(target.index);
+    try {
+      await native.gitStashDrop(repoRoot, target.sha);
+      await loadStashes();
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setBusyLocal(null);
+    }
+  }, [dropTarget, loadStashes, repoRoot]);
+
+  const disabled = busy || busyLocal !== null;
+
+  return (
+    <>
+      <DropdownMenu open={open} onOpenChange={setOpen}>
+        <DropdownMenuTrigger asChild>
+          {/* The click that opens the menu is handled by this trigger (via
+              the span it clones its handlers onto); IconActionButton only
+              supplies the tooltip + icon chrome, so its own onClick is a
+              no-op. */}
+          <span>
+            <IconActionButton
+              label="Stash"
+              disabled={!repoRoot || busy}
+              onClick={() => {}}
+              side="bottom"
+            >
+              <HugeiconsIcon icon={Package01Icon} size={14} strokeWidth={1.8} />
+            </IconActionButton>
+          </span>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-64">
+          <DropdownMenuItem
+            disabled={disabled || changedCount === 0}
+            onSelect={(e) => {
+              e.preventDefault();
+              void handleSave();
+            }}
+            className="flex cursor-pointer items-center gap-2 text-[12px] font-medium"
+          >
+            {busyLocal === "save" ? (
+              <Spinner className="size-3.5 shrink-0" />
+            ) : (
+              <HugeiconsIcon
+                icon={Package01Icon}
+                size={13}
+                strokeWidth={1.8}
+                className="shrink-0"
+              />
             )}
-          </>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+            Save current changes
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          {loading ? (
+            <div className="flex items-center gap-2 px-3 py-3 text-[11px] text-muted-foreground">
+              <Spinner className="size-3" />
+              Loading stashes…
+            </div>
+          ) : error ? (
+            <div className="px-3 py-3 text-[11px] leading-snug text-destructive">
+              {error}
+            </div>
+          ) : stashes.length === 0 ? (
+            <div className="px-3 py-3 text-[11px] text-muted-foreground">
+              No stashed changes.
+            </div>
+          ) : (
+            <DropdownMenuGroup>
+              {stashes.map((entry) => (
+                <div
+                  key={entry.index}
+                  className="flex items-center gap-0.5 px-1 py-0.5"
+                >
+                  <div className="flex min-w-0 flex-1 flex-col px-1.5 py-1">
+                    <span className="truncate text-[12px] font-medium text-foreground">
+                      {entry.message}
+                    </span>
+                    {entry.branch ? (
+                      <span className="truncate text-[10px] text-muted-foreground">
+                        {entry.branch}
+                      </span>
+                    ) : null}
+                  </div>
+                  <IconActionButton
+                    label="Restore stash"
+                    disabled={disabled}
+                    side="top"
+                    onClick={() => {
+                      setOpen(false);
+                      void handleRestore(entry);
+                    }}
+                  >
+                    {busyLocal === entry.index ? (
+                      <Spinner className="size-3" />
+                    ) : (
+                      <HugeiconsIcon
+                        icon={ArrowUp01Icon}
+                        size={12}
+                        strokeWidth={2}
+                      />
+                    )}
+                  </IconActionButton>
+                  <IconActionButton
+                    label="Drop stash"
+                    disabled={disabled}
+                    side="top"
+                    onClick={() => {
+                      setOpen(false);
+                      setDropTarget(entry);
+                    }}
+                  >
+                    <HugeiconsIcon
+                      icon={Delete02Icon}
+                      size={12}
+                      strokeWidth={1.9}
+                    />
+                  </IconActionButton>
+                </div>
+              ))}
+            </DropdownMenuGroup>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <AlertDialog
+        open={dropTarget !== null}
+        onOpenChange={(o) => {
+          if (!o) setDropTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Drop stash?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {dropTarget
+                ? `Drop "${dropTarget.message}"? This cannot be undone.`
+                : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDropTarget(null)}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => void confirmDrop()}
+            >
+              Drop
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
+function ConflictListDialog({
+  notice,
+  onDismiss,
+}: {
+  notice: { title: string; files: string[] } | null;
+  onDismiss: () => void;
+}) {
+  return (
+    <Dialog
+      open={notice !== null}
+      onOpenChange={(o) => {
+        if (!o) onDismiss();
+      }}
+    >
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{notice?.title ?? "Conflicts"}</DialogTitle>
+          <DialogDescription>
+            Resolve these files, then stage and commit to finish. They stay
+            visible in Changes until resolved.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="max-h-56 overflow-y-auto rounded-lg border border-border/60">
+          {notice?.files.map((path) => (
+            <div
+              key={path}
+              className="flex items-center gap-2 border-b border-border/40 px-3 py-1.5 text-[12px] last:border-b-0"
+            >
+              <HugeiconsIcon
+                icon={Alert02Icon}
+                size={12}
+                strokeWidth={1.9}
+                className="shrink-0 text-destructive"
+              />
+              <span className="min-w-0 flex-1 truncate font-mono">{path}</span>
+            </div>
+          ))}
+        </div>
+        <DialogFooter>
+          <Button onClick={onDismiss}>OK</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function RemoteActionControl({
+  status,
+  isDiverged,
+  busy,
+  onRun,
+}: {
+  status: { upstream: string | null; ahead: number; behind: number } | null;
+  isDiverged: boolean;
+  busy: SourceControlRemoteAction | null;
+  onRun: (action: SourceControlRemoteAction) => void;
+}) {
+  const hasUpstream = !!status?.upstream;
+  const ahead = status?.ahead ?? 0;
+  const behind = status?.behind ?? 0;
+  const primary: SourceControlRemoteAction =
+    behind > 0 ? "pull" : ahead > 0 ? "push" : "fetch";
+
+  const disabledFor = useCallback(
+    (action: SourceControlRemoteAction) => {
+      if (!hasUpstream || busy !== null) return true;
+      if (action === "pull") return behind === 0 || isDiverged;
+      if (action === "push") return ahead === 0 || behind > 0;
+      return false;
+    },
+    [ahead, behind, busy, hasUpstream, isDiverged],
+  );
+
+  const primaryTooltip = !hasUpstream
+    ? "No upstream configured"
+    : isDiverged
+      ? "Branch diverged — resolve in terminal"
+      : primary === "pull"
+        ? `Pull ${behind} commits (fast-forward)`
+        : primary === "push"
+          ? ahead > 0
+            ? `Push ${ahead} commits`
+            : "No local commits to push"
+          : "Fetch remote updates";
+
+  const primaryBusy = busy === primary;
+  const primaryDisabled = disabledFor(primary);
+
+  return (
+    <div className="flex shrink-0 items-center">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            size="xs"
+            variant="secondary"
+            disabled={primaryDisabled}
+            onClick={() => onRun(primary)}
+            className="h-6 cursor-pointer rounded-r-none text-[11px] font-medium disabled:cursor-not-allowed"
+          >
+            {primaryBusy ? (
+              <Spinner className="size-3" />
+            ) : (
+              <HugeiconsIcon
+                icon={
+                  primary === "fetch"
+                    ? FolderCloudIcon
+                    : primary === "pull"
+                      ? Download01Icon
+                      : ArrowUp01Icon
+                }
+                size={12}
+                strokeWidth={1.9}
+              />
+            )}
+            {REMOTE_ACTION_LABELS[primary]}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent
+          side="bottom"
+          className={cn(SOURCE_CONTROL_TOOLTIP_CLASS, "text-[10.5px]")}
+        >
+          {primaryTooltip}
+        </TooltipContent>
+      </Tooltip>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            size="icon-sm"
+            variant="secondary"
+            disabled={busy !== null}
+            aria-label="Other remote actions"
+            className="h-6 w-4.5 cursor-pointer rounded-l-none border-l border-border/50 p-0 disabled:cursor-not-allowed"
+          >
+            <HugeiconsIcon icon={ArrowDown01Icon} size={10} strokeWidth={2} />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-40">
+          {(["fetch", "pull", "push"] as const)
+            .filter((action) => action !== primary)
+            .map((action) => (
+              <DropdownMenuItem
+                key={action}
+                disabled={disabledFor(action)}
+                onSelect={() => onRun(action)}
+                className="text-[12px]"
+              >
+                {REMOTE_ACTION_LABELS[action]}
+              </DropdownMenuItem>
+            ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 }
 
@@ -354,6 +1268,13 @@ export const SourceControlPanel = memo(function SourceControlPanel({
   const scrollRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [focusedRowKey, setFocusedRowKey] = useState<string | null>(null);
+  const [conflictNotice, setConflictNotice] = useState<{
+    title: string;
+    files: string[];
+  } | null>(null);
+  const handleConflicts = useCallback((title: string, files: string[]) => {
+    setConflictNotice({ title, files });
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -384,25 +1305,11 @@ export const SourceControlPanel = memo(function SourceControlPanel({
   const commitHint = canCommit
     ? `Commit with ${commitShortcut}.`
     : (commitDisabledReason ?? `Commit with ${commitShortcut}.`);
-  const pushHint = scm.pushHint ?? "Push is unavailable right now.";
-  const pushDisabledReason = scm.actionBusy
-    ? "Wait for the current Git action to finish."
-    : pushHint;
   const stagedCount = scm.stagedEntries.length;
   const changedCount = scm.fileEntries.length;
   const pushStatusLabel = upstreamBadgeLabel(scm.status?.upstream);
-  const hasUpstream = !!scm.status?.upstream;
   const isDiverged =
     !!scm.status && scm.status.ahead > 0 && scm.status.behind > 0;
-
-  const canPull =
-    hasUpstream &&
-    !!scm.status &&
-    scm.status.behind > 0 &&
-    !isDiverged &&
-    !scm.actionBusy &&
-    !sourceControl.busyAction;
-  const canFetch = hasUpstream && !scm.actionBusy && !sourceControl.busyAction;
 
   const footerFeedback = useMemo(() => {
     if (scm.actionError)
@@ -438,14 +1345,6 @@ export const SourceControlPanel = memo(function SourceControlPanel({
       }, 450);
     });
   }, [scm]);
-
-  const handleFetch = useCallback(() => {
-    void sourceControl.runRemoteAction("fetch");
-  }, [sourceControl]);
-
-  const handlePull = useCallback(() => {
-    void sourceControl.runRemoteAction("pull");
-  }, [sourceControl]);
 
   const rows = useMemo<RowDescriptor[]>(() => {
     const result: RowDescriptor[] = [];
@@ -600,9 +1499,6 @@ export const SourceControlPanel = memo(function SourceControlPanel({
 
   if (!open) return null;
 
-  const fetchBusy = sourceControl.busyAction === "fetch";
-  const pullBusy = sourceControl.busyAction === "pull";
-
   return (
     <TooltipProvider delayDuration={800} skipDelayDuration={300}>
       <aside className="flex h-full min-w-0 flex-col bg-card/80 backdrop-blur [contain:layout_style]">
@@ -611,8 +1507,12 @@ export const SourceControlPanel = memo(function SourceControlPanel({
             <BranchDropdown
               repoRoot={scm.repo?.repoRoot ?? null}
               repoLabel={repoLabel}
+              currentBranch={scm.status?.branch ?? null}
+              changedCount={changedCount}
+              busy={!!scm.actionBusy}
               onNavigateToPath={onNavigateToPath}
               onRefresh={handleRefresh}
+              onConflicts={handleConflicts}
             />
             {scm.status && (scm.status.ahead > 0 || scm.status.behind > 0) ? (
               <div className="flex shrink-0 items-center gap-0.5 text-[10px] font-semibold tabular-nums leading-none text-muted-foreground">
@@ -644,49 +1544,20 @@ export const SourceControlPanel = memo(function SourceControlPanel({
               </span>
             ) : null}
           </div>
-          <div className="flex shrink-0 items-center gap-0.5">
-            <IconActionButton
-              label={fetchBusy ? "Fetching…" : "Fetch from remote"}
-              disabled={!canFetch}
-              onClick={handleFetch}
-              side="bottom"
-            >
-              {fetchBusy ? (
-                <Spinner className="size-3" />
-              ) : (
-                <HugeiconsIcon
-                  icon={FolderCloudIcon}
-                  size={14}
-                  strokeWidth={1.85}
-                />
-              )}
-            </IconActionButton>
-            <IconActionButton
-              label={
-                pullBusy
-                  ? "Pulling…"
-                  : isDiverged
-                    ? "Branch diverged — resolve in terminal"
-                    : !hasUpstream
-                      ? "No upstream configured"
-                      : (scm.status?.behind ?? 0) === 0
-                        ? "Already up to date"
-                        : `Pull ${scm.status?.behind ?? 0} commits (fast-forward)`
-              }
-              disabled={!canPull}
-              onClick={handlePull}
-              side="bottom"
-            >
-              {pullBusy ? (
-                <Spinner className="size-3" />
-              ) : (
-                <HugeiconsIcon
-                  icon={Download01Icon}
-                  size={14}
-                  strokeWidth={1.9}
-                />
-              )}
-            </IconActionButton>
+          <div className="flex shrink-0 items-center gap-1">
+            <RemoteActionControl
+              status={scm.status}
+              isDiverged={isDiverged}
+              busy={sourceControl.busyAction}
+              onRun={(action) => void scm.runRemote(action)}
+            />
+            <StashMenu
+              repoRoot={scm.repo?.repoRoot ?? null}
+              changedCount={changedCount}
+              busy={!!scm.actionBusy}
+              onRefresh={handleRefresh}
+              onConflicts={handleConflicts}
+            />
             <IconActionButton
               label="Refresh source control"
               disabled={isRefreshing || !!scm.actionBusy}
@@ -806,51 +1677,24 @@ export const SourceControlPanel = memo(function SourceControlPanel({
                 </span>
               </div>
 
-              <div className="grid w-full grid-cols-2 gap-1.5">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      size="xs"
-                      className="h-7 cursor-pointer text-[11.5px] font-semibold tracking-tight shadow-sm disabled:cursor-not-allowed disabled:shadow-none"
-                      disabled={!canCommit}
-                      onClick={() => void scm.commit()}
-                    >
-                      {scm.actionBusy === "commit" ? "Committing…" : "Commit"}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent
-                    side="bottom"
-                    className={cn(
-                      SOURCE_CONTROL_TOOLTIP_CLASS,
-                      "text-[10.5px]",
-                    )}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="xs"
+                    className="h-7 w-full cursor-pointer text-[11.5px] font-semibold tracking-tight shadow-sm disabled:cursor-not-allowed disabled:shadow-none"
+                    disabled={!canCommit}
+                    onClick={() => void scm.commit()}
                   >
-                    {commitHint}
-                  </TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      size="xs"
-                      variant="secondary"
-                      className="h-7 cursor-pointer text-[11.5px] font-medium disabled:cursor-not-allowed"
-                      disabled={!scm.canPush || !!scm.actionBusy}
-                      onClick={() => void scm.push()}
-                    >
-                      {scm.actionBusy === "push" ? "Pushing…" : "Push"}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent
-                    side="bottom"
-                    className={cn(
-                      SOURCE_CONTROL_TOOLTIP_CLASS,
-                      "max-w-64 text-[10.5px]",
-                    )}
-                  >
-                    {pushDisabledReason}
-                  </TooltipContent>
-                </Tooltip>
-              </div>
+                    {scm.actionBusy === "commit" ? "Committing…" : "Commit"}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent
+                  side="bottom"
+                  className={cn(SOURCE_CONTROL_TOOLTIP_CLASS, "text-[10.5px]")}
+                >
+                  {commitHint}
+                </TooltipContent>
+              </Tooltip>
 
               <CommitFeedback feedback={footerFeedback} />
             </div>
@@ -916,9 +1760,20 @@ export const SourceControlPanel = memo(function SourceControlPanel({
                 </div>
               </div>
             )}
+
+            <StatusBar
+              status={scm.status}
+              conflictedCount={scm.conflictedCount}
+              lastOperation={scm.lastOperation}
+            />
           </>
         ) : null}
       </aside>
+
+      <ConflictListDialog
+        notice={conflictNotice}
+        onDismiss={() => setConflictNotice(null)}
+      />
 
       <AlertDialog
         open={scm.pendingDiscard !== null}
@@ -989,6 +1844,58 @@ function CleanTreeHint({ repoLabel }: { repoLabel: string }) {
       <div className="text-[10.5px] leading-snug text-muted-foreground">
         on <span className="font-mono text-foreground/80">{repoLabel}</span>
       </div>
+    </div>
+  );
+}
+
+function StatusBar({
+  status,
+  conflictedCount,
+  lastOperation,
+}: {
+  status: GitStatusSnapshot;
+  conflictedCount: number;
+  lastOperation: SourceControlLastOperation | null;
+}) {
+  // Re-render periodically so "just now" ages into "2m ago" etc.
+  const [, forceTick] = useState(0);
+  useEffect(() => {
+    if (!lastOperation) return;
+    const id = window.setInterval(() => forceTick((n) => n + 1), 30_000);
+    return () => window.clearInterval(id);
+  }, [lastOperation]);
+
+  return (
+    <div className="flex shrink-0 items-center gap-3 overflow-x-auto border-t border-border/40 bg-card/60 px-3 py-1.5 text-[10.5px] text-muted-foreground">
+      <span className="inline-flex shrink-0 items-center gap-1">
+        <HugeiconsIcon icon={GitBranchIcon} size={10} strokeWidth={1.9} />
+        <span className="font-medium text-foreground/85">
+          {status.isDetached ? "detached" : status.branch}
+        </span>
+      </span>
+      <span className="shrink-0 tabular-nums">
+        {status.ahead > 0 || status.behind > 0
+          ? `↑${status.ahead} ↓${status.behind}`
+          : "up to date"}
+      </span>
+      <span
+        className={cn(
+          "shrink-0",
+          conflictedCount > 0 && "font-medium text-destructive",
+        )}
+      >
+        {conflictedCount} {conflictedCount === 1 ? "conflict" : "conflicts"}
+      </span>
+      <span className="min-w-0 flex-1 truncate">
+        {status.upstream ? `upstream ${status.upstream}` : "no upstream"}
+      </span>
+      {lastOperation ? (
+        <span
+          className={cn("shrink-0", !lastOperation.ok && "text-destructive")}
+        >
+          {lastOperation.label} {relativeTime(lastOperation.at)}
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -1328,14 +2235,19 @@ function CommitFeedback({
     }
     setVisibleFeedback(feedback);
     setIsVisible(true);
-    const hideTimer = window.setTimeout(() => setIsVisible(false), 3600);
+    // Auth failures carry a "next action" hint worth reading — keep them
+    // visible longer than a routine success/error blip.
+    const auth = feedback.tone === "error" && isAuthError(feedback.message);
+    const hideDelay = auth ? 8000 : 3600;
+    const clearDelay = auth ? 8300 : 3900;
+    const hideTimer = window.setTimeout(() => setIsVisible(false), hideDelay);
     const clearTimer = window.setTimeout(() => {
       setVisibleFeedback((current) =>
         current?.message === feedback.message && current.tone === feedback.tone
           ? null
           : current,
       );
-    }, 3900);
+    }, clearDelay);
     return () => {
       window.clearTimeout(hideTimer);
       window.clearTimeout(clearTimer);
@@ -1345,28 +2257,42 @@ function CommitFeedback({
   if (!visibleFeedback) return null;
 
   const isError = visibleFeedback.tone === "error";
+  const isAuth = isError && isAuthError(visibleFeedback.message);
   return (
     <div
       className={cn(
-        "pointer-events-none absolute inset-x-3 top-[calc(100%-0.25rem)] z-20 flex min-w-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] leading-snug shadow-lg shadow-black/15 backdrop-blur transition-all duration-200",
+        "pointer-events-none absolute inset-x-3 top-[calc(100%-0.25rem)] z-20 flex min-w-0 items-start gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] leading-snug shadow-lg shadow-black/15 backdrop-blur transition-all duration-200",
         isVisible ? "translate-y-0 opacity-100" : "-translate-y-1 opacity-0",
         isError
           ? "border-destructive/30 bg-card/95 text-destructive"
           : "border-border/70 bg-card/95 text-muted-foreground",
       )}
     >
+      {isAuth ? (
+        <HugeiconsIcon
+          icon={Alert02Icon}
+          size={12}
+          strokeWidth={2}
+          className="mt-0.5 shrink-0"
+        />
+      ) : (
+        <span
+          className={cn(
+            "mt-1 size-1.5 shrink-0 rounded-full",
+            isError ? "bg-destructive" : "bg-foreground/70",
+          )}
+        />
+      )}
       <span
         className={cn(
-          "size-1.5 shrink-0 rounded-full",
-          isError ? "bg-destructive" : "bg-foreground/70",
-        )}
-      />
-      <span
-        className={cn(
-          "min-w-0 flex-1 truncate",
+          "min-w-0 flex-1",
+          isAuth ? "line-clamp-3" : "truncate",
           isError ? "text-destructive" : "text-muted-foreground",
         )}
       >
+        {isAuth ? (
+          <b className="font-semibold">Authentication required — </b>
+        ) : null}
         {visibleFeedback.message}
       </span>
     </div>

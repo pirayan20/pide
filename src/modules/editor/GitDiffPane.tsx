@@ -2,9 +2,9 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
 import { native } from "@/lib/native";
-import { unifiedMergeView } from "@codemirror/merge";
+import { MergeView, unifiedMergeView } from "@codemirror/merge";
 import { EditorState, type Extension } from "@codemirror/state";
-import { EditorView } from "@codemirror/view";
+import { EditorView, lineNumbers } from "@codemirror/view";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -114,7 +114,11 @@ type LoadState =
 export function GitDiffPane({ source, chipLabel, active }: Props) {
   const cmRef = useRef<ReactCodeMirrorRef>(null);
   const themeExt = useEditorThemeExt();
+  const splitContainerRef = useRef<HTMLDivElement>(null);
+  const mergeViewRef = useRef<MergeView | null>(null);
   const [state, setState] = useState<LoadState>({ kind: "idle" });
+  // ponytail: local component state for view mode, can add user preferences later
+  const [viewMode, setViewMode] = useState<"unified" | "split">("unified");
 
   useEffect(() => {
     if (!active) return;
@@ -209,6 +213,65 @@ export function GitDiffPane({ source, chipLabel, active }: Props) {
     };
   }, [useFallback, path, state]);
 
+  // Manage split view (MergeView) lifecycle
+  useEffect(() => {
+    if (viewMode !== "split" || useFallback || !loaded || !splitContainerRef.current) {
+      return;
+    }
+
+    const container = splitContainerRef.current;
+    container.innerHTML = "";
+
+    // Must mirror the unified view: themeExt carries syntax highlighting +
+    // colors (the unified pane gets it via the `theme` prop), and lineNumbers()
+    // comes from basicSetup there. Without them the split panes render as raw
+    // monochrome text with no gutter.
+    const baseExtensions = [
+      ...SHARED_EXT,
+      DEFAULT_INDENT,
+      lineNumbers(),
+      languageCompartment.of(langExt ?? []),
+      ...READONLY_EXT,
+      themeExt,
+      DIFF_THEME,
+    ];
+
+    const view = new MergeView({
+      a: {
+        doc: originalContent,
+        extensions: baseExtensions,
+      },
+      b: {
+        doc: modifiedContent,
+        extensions: baseExtensions,
+      },
+      parent: container,
+      // No revertControls: this is a read-only viewer; revert arrows would
+      // rewrite the in-memory doc and make chunks look reverted while nothing
+      // is written to disk or git.
+      highlightChanges: true,
+      gutter: true,
+      // Collapse unchanged regions so the view lands on the actual changes
+      // instead of a wall of identical context (mirrors the unified view).
+      collapseUnchanged: { margin: 3, minSize: 6 },
+    });
+
+    mergeViewRef.current = view;
+
+    return () => {
+      view.destroy();
+      mergeViewRef.current = null;
+    };
+  }, [
+    viewMode,
+    originalContent,
+    modifiedContent,
+    langExt,
+    useFallback,
+    loaded,
+    themeExt,
+  ]);
+
   const stats = useMemo(
     () =>
       useFallback ? countDiffLines(fallbackPatch) : { added: 0, removed: 0 },
@@ -241,18 +304,36 @@ export function GitDiffPane({ source, chipLabel, active }: Props) {
             {path}
           </span>
         </div>
-        <div className="flex shrink-0 items-center gap-3 text-[10.5px] tabular-nums text-muted-foreground">
-          <span className="truncate max-w-80 font-mono">{repoRoot}</span>
-          {useFallback ? (
-            <>
-              <span className="text-emerald-600 dark:text-emerald-400">
-                +{stats.added}
-              </span>
-              <span className="text-rose-600 dark:text-rose-400">
-                −{stats.removed}
-              </span>
-            </>
-          ) : null}
+        <div className="flex shrink-0 items-center gap-3">
+          {!useFallback && state.kind === "loaded" && (
+            <button
+              type="button"
+              onClick={() =>
+                setViewMode((v) => (v === "unified" ? "split" : "unified"))
+              }
+              className="rounded px-2 py-1 text-[10.5px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              title={
+                viewMode === "unified"
+                  ? "Switch to split view"
+                  : "Switch to unified view"
+              }
+            >
+              {viewMode === "unified" ? "Unified" : "Split"}
+            </button>
+          )}
+          <div className="text-[10.5px] tabular-nums text-muted-foreground">
+            <span className="truncate max-w-80 font-mono">{repoRoot}</span>
+            {useFallback ? (
+              <div className="flex gap-3">
+                <span className="text-emerald-600 dark:text-emerald-400">
+                  +{stats.added}
+                </span>
+                <span className="text-rose-600 dark:text-rose-400">
+                  −{stats.removed}
+                </span>
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
 
@@ -272,7 +353,7 @@ export function GitDiffPane({ source, chipLabel, active }: Props) {
               {fallbackPatch || "Diff preview is not available for this file."}
             </pre>
           </ScrollArea>
-        ) : (
+        ) : viewMode === "unified" ? (
           <CodeMirror
             ref={cmRef}
             value={modifiedContent}
@@ -288,6 +369,12 @@ export function GitDiffPane({ source, chipLabel, active }: Props) {
               highlightActiveLineGutter: false,
               searchKeymap: true,
             }}
+          />
+        ) : (
+          <div
+            ref={splitContainerRef}
+            className="h-full w-full overflow-auto"
+            data-testid="split-diff-view"
           />
         )}
       </div>
