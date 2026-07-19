@@ -3,9 +3,10 @@ use crate::modules::oauth;
 use serde_json::Value;
 use std::time::Duration;
 
-// Codex has no unauthenticated usage source. Its stored access token expires,
-// so — like the CLI does on startup — we exchange the (reusable) refresh token
-// for a fresh access token in memory, then read live usage. Confirmed shape:
+// Codex has no unauthenticated usage source. It uses Pide's own OAuth tokens
+// (stored in the keychain via the oauth module); when the access token has
+// expired it's refreshed there and persisted before we read live usage.
+// Confirmed shape:
 //   GET https://chatgpt.com/backend-api/codex/usage
 //   -> { email, plan_type, rate_limit: { primary_window, secondary_window },
 //        additional_rate_limits: [ { limit_name, rate_limit: { primary_window } } ] }

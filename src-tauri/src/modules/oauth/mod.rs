@@ -62,6 +62,14 @@ pub fn provider_config(provider: &str) -> Option<ProviderConfig> {
     }
 }
 
+/// Anthropic's paste page yields "code#state"; loopback yields a bare code.
+pub fn split_pasted_code(pasted: &str) -> (String, Option<String>) {
+    match pasted.trim().split_once('#') {
+        Some((c, s)) => (c.to_string(), Some(s.to_string())),
+        None => (pasted.trim().to_string(), None),
+    }
+}
+
 fn enc(s: &str) -> String {
     // minimal application/x-www-form-urlencoded component encoding
     let mut out = String::new();
@@ -99,11 +107,14 @@ fn open_browser(app: &tauri::AppHandle, url: &str) {
     let _ = app.opener().open_url(url, None::<&str>);
 }
 
-/// Loopback login (Codex): open browser, wait for the callback, exchange, save.
+/// Loopback login (Codex): bind the callback port, open browser, wait for
+/// the callback, exchange, save. Binding first fails fast if the port is
+/// busy instead of stranding the user mid-auth.
 #[tauri::command]
 pub async fn usage_login(app: tauri::AppHandle, provider: String) -> Result<Option<String>, String> {
     let cfg = provider_config(&provider).ok_or("unknown provider")?;
     let port = cfg.loopback_port.ok_or("provider is not loopback; use usage_login_start")?;
+    let listener = loopback::bind(port).ok_or("port 1455 is busy")?;
     let p = pkce();
     let st = random_urlsafe(24);
     let url = authorize_url(&cfg, &p.challenge, &st);
@@ -114,13 +125,15 @@ pub async fn usage_login(app: tauri::AppHandle, provider: String) -> Result<Opti
     let provider2 = provider.clone();
     let tokens = tauri::async_runtime::spawn_blocking(move || {
         let cfg = provider_config(&provider2)?;
-        let code = loopback::wait_for_code(port, &state, Duration::from_secs(120))?;
-        token::exchange_code(&cfg, &code, &verifier)
+        let code = loopback::wait_on(&listener, &state, Duration::from_secs(120))?;
+        token::exchange_code(&cfg, &code, &verifier, None)
     })
     .await
     .map_err(|e| e.to_string())?;
     let tokens = tokens.ok_or("login did not complete")?;
-    store::save(&provider, &tokens);
+    if !store::save(&provider, &tokens) {
+        return Err("failed to store tokens".into());
+    }
     Ok(tokens.account)
 }
 
@@ -140,6 +153,7 @@ pub fn usage_login_start(provider: String, state: tauri::State<OauthState>) -> R
 }
 
 /// Paste login step 2 (Claude): exchange the pasted code with the stashed verifier.
+/// Anthropic's paste page yields "code#state"; verify state when present.
 #[tauri::command]
 pub fn usage_login_finish(
     provider: String,
@@ -148,14 +162,24 @@ pub fn usage_login_finish(
 ) -> Result<Option<String>, String> {
     let cfg = provider_config(&provider).ok_or("unknown provider")?;
     let pending = state.0.lock().unwrap().remove(&provider).ok_or("no pending login")?;
-    let tokens = token::exchange_code(&cfg, code.trim(), &pending.verifier).ok_or("code exchange failed")?;
-    store::save(&provider, &tokens);
+    let (code_part, state_opt) = split_pasted_code(&code);
+    if let Some(s) = &state_opt {
+        if s != &pending.state {
+            return Err("state mismatch".into());
+        }
+    }
+    let tokens = token::exchange_code(&cfg, &code_part, &pending.verifier, state_opt.as_deref())
+        .ok_or("code exchange failed")?;
+    if !store::save(&provider, &tokens) {
+        return Err("failed to store tokens".into());
+    }
     Ok(tokens.account)
 }
 
 #[tauri::command]
-pub fn usage_logout(provider: String) {
+pub fn usage_logout(provider: String, usage_state: tauri::State<crate::modules::usage::UsageState>) {
     store::delete(&provider);
+    usage_state.0.lock().unwrap().remove(&provider);
 }
 
 #[tauri::command]
@@ -209,5 +233,15 @@ mod tests {
     #[test]
     fn unknown_provider_is_none() {
         assert!(provider_config("gemini").is_none());
+    }
+
+    #[test]
+    fn split_pasted_code_splits_on_hash() {
+        assert_eq!(split_pasted_code("abc#xyz"), ("abc".to_string(), Some("xyz".to_string())));
+    }
+
+    #[test]
+    fn split_pasted_code_bare_code_has_no_state() {
+        assert_eq!(split_pasted_code("abc"), ("abc".to_string(), None));
     }
 }

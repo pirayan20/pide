@@ -39,19 +39,19 @@ fn tokens_from_response(body: &Value, prior_refresh: Option<&str>) -> Option<Tok
     Some(Tokens { access, refresh, expires_at: now_ms() + expires_in * 1000, account })
 }
 
-pub fn exchange_code(cfg: &ProviderConfig, code: &str, verifier: &str) -> Option<Tokens> {
+pub fn exchange_code(cfg: &ProviderConfig, code: &str, verifier: &str, state: Option<&str>) -> Option<Tokens> {
     let c = client(cfg)?;
-    let resp = c
-        .post(cfg.token_url)
-        .json(&json!({
-            "grant_type": "authorization_code",
-            "code": code,
-            "redirect_uri": cfg.redirect_uri,
-            "client_id": cfg.client_id,
-            "code_verifier": verifier,
-        }))
-        .send()
-        .ok()?;
+    let mut body = json!({
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": cfg.redirect_uri,
+        "client_id": cfg.client_id,
+        "code_verifier": verifier,
+    });
+    if let Some(s) = state {
+        body["state"] = json!(s);
+    }
+    let resp = c.post(cfg.token_url).json(&body).send().ok()?;
     if !resp.status().is_success() {
         return None;
     }

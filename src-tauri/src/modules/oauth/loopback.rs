@@ -17,17 +17,28 @@ pub fn parse_callback(request_line: &str) -> Option<(String, String)> {
     Some((code?, state?))
 }
 
-/// Accept exactly one callback request on 127.0.0.1:<port>, verify state,
-/// return the code. Blocks up to `timeout`.
-pub fn wait_for_code(port: u16, expected_state: &str, timeout: Duration) -> Option<String> {
+/// Bind the loopback listener up front so port-busy is detected before the
+/// browser is opened. Non-blocking, ready for `wait_on`.
+pub fn bind(port: u16) -> Option<TcpListener> {
     let listener = TcpListener::bind(("127.0.0.1", port)).ok()?;
     listener.set_nonblocking(true).ok()?;
+    Some(listener)
+}
+
+/// Accept callback requests on an already-bound listener, verify state,
+/// return the code. Blocks up to `timeout`. Tolerates individual connection
+/// errors (e.g. Chrome's speculative loopback preconnects) instead of
+/// aborting the whole wait.
+pub fn wait_on(listener: &TcpListener, expected_state: &str, timeout: Duration) -> Option<String> {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
         match listener.accept() {
             Ok((mut stream, _)) => {
                 let mut buf = [0u8; 2048];
-                let n = stream.read(&mut buf).ok()?;
+                let n = match stream.read(&mut buf) {
+                    Ok(n) => n,
+                    Err(_) => continue,
+                };
                 let text = String::from_utf8_lossy(&buf[..n]);
                 let first = text.lines().next().unwrap_or("");
                 let result = parse_callback(first).filter(|(_, s)| s == expected_state);
@@ -49,7 +60,10 @@ pub fn wait_for_code(port: u16, expected_state: &str, timeout: Duration) -> Opti
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 std::thread::sleep(Duration::from_millis(100));
             }
-            Err(_) => return None,
+            Err(_) => {
+                std::thread::sleep(Duration::from_millis(100));
+                continue;
+            }
         }
     }
     None
