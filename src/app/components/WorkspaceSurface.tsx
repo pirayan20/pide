@@ -2,7 +2,7 @@ import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { EditorStack, GitDiffStack } from "@/modules/editor";
 import { GitHistoryStack } from "@/modules/git-history";
-import { MarkdownStack } from "@/modules/markdown";
+import { RenderStack } from "@/modules/markdown";
 import { PreviewStack } from "@/modules/preview";
 import type { Tab } from "@/modules/tabs";
 import { TerminalStack } from "@/modules/terminal";
@@ -29,7 +29,8 @@ type Props = {
   onPreviewUrlChange: PreviewStackProps["onUrlChange"];
   onOpenCommitFile: GitHistoryStackProps["onOpenCommitFile"];
   onGitHistorySearchHandle: GitHistoryStackProps["onSearchHandle"];
-  onSetMarkdownView: EditorStackProps["onSetMarkdownView"];
+  onSetRenderView: EditorStackProps["onSetRenderView"];
+  onOpenPreview: EditorStackProps["onOpenPreview"];
 };
 
 /**
@@ -54,13 +55,14 @@ export function WorkspaceSurface({
   onPreviewUrlChange,
   onOpenCommitFile,
   onGitHistorySearchHandle,
-  onSetMarkdownView,
+  onSetRenderView,
+  onOpenPreview,
 }: Props) {
   const kind = activeTab?.kind;
   const isTerminalTab = kind === "terminal";
   const isEditorTab = kind === "editor";
   const isPreviewTab = kind === "preview";
-  const isMarkdownTab = kind === "markdown";
+  const isRenderTab = kind === "render";
   const isGitDiffTab = kind === "git-diff" || kind === "git-commit-file";
   const isGitHistoryTab = kind === "git-history";
 
@@ -96,7 +98,8 @@ export function WorkspaceSurface({
           registerHandle={registerEditorHandle}
           onDirtyChange={onEditorDirtyChange}
           onCloseTab={onEditorCloseTab}
-          onSetMarkdownView={onSetMarkdownView}
+          onSetRenderView={onSetRenderView}
+          onOpenPreview={onOpenPreview}
         />
       </div>
       <div
@@ -116,14 +119,14 @@ export function WorkspaceSurface({
       <div
         className={cn(
           "absolute inset-0 px-3 pt-2 pb-2",
-          !isMarkdownTab && "invisible pointer-events-none",
+          !isRenderTab && "invisible pointer-events-none",
         )}
-        aria-hidden={!isMarkdownTab}
+        aria-hidden={!isRenderTab}
       >
-        <MarkdownStack
+        <RenderStack
           tabs={tabs}
           activeId={activeId}
-          onSetMarkdownView={onSetMarkdownView}
+          onSetRenderView={onSetRenderView}
         />
       </div>
       <div

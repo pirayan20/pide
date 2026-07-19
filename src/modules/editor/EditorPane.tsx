@@ -25,6 +25,7 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
+import { ImagePreview } from "./ImagePreview";
 import { diagnosticsReporter } from "./lib/diagnosticsReporter";
 import { useDiagnosticsStore } from "./lib/diagnosticsStore";
 import {
@@ -409,15 +410,11 @@ export const EditorPane = memo(
     }
     if (doc.status === "binary" || doc.status === "toolarge") {
       const ext = path.split(".").pop()?.toLowerCase() ?? "";
-      const isImage = [
-        "png",
-        "jpg",
-        "jpeg",
-        "gif",
-        "webp",
-        "svg",
-        "ico",
-      ].includes(ext);
+      // svg is not here: it's text (routes to the render tab as an image with
+      // a source toggle, see previewRendererFor). These are the binary formats.
+      const isImage = ["png", "jpg", "jpeg", "gif", "webp", "ico", "bmp"].includes(
+        ext,
+      );
       const isVideo = ["mp4", "webm", "ogg", "mov"].includes(ext);
       const isAudio = ["mp3", "wav", "flac", "aac", "m4a"].includes(ext);
       const isPdf = ext === "pdf";
@@ -427,16 +424,9 @@ export const EditorPane = memo(
         return (
           <div className="flex h-full min-h-0 flex-col items-center justify-center bg-background p-4 overflow-auto">
             {isImage && (
-              <img
+              <ImagePreview
+                key={assetUrl}
                 src={assetUrl}
-                loading="lazy"
-                decoding="async"
-                className="max-w-full max-h-full object-contain rounded-md border border-border shadow-sm"
-                style={{
-                  backgroundImage:
-                    "conic-gradient(var(--muted) 0.25turn, transparent 0.25turn 0.5turn, var(--muted) 0.5turn 0.75turn, transparent 0.75turn)",
-                  backgroundSize: "20px 20px",
-                }}
                 alt={path.split("/").pop()}
               />
             )}

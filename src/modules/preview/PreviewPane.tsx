@@ -12,6 +12,19 @@ import {
   type PreviewAddressBarHandle,
 } from "./PreviewAddressBar";
 
+// A local-file preview served through convertFileSrc. Parsed with `new URL`
+// so the host comparison is case-insensitive (URL normalizes the hostname) —
+// a plain substring check would miss `ASSET.LOCALHOST`. asset:// (macOS/Linux)
+// exposes the scheme; http://asset.localhost (Windows) exposes the host.
+function isAssetPreviewUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.protocol === "asset:" || u.hostname === "asset.localhost";
+  } catch {
+    return false;
+  }
+}
+
 export type PreviewPaneHandle = {
   reload: () => void;
   focusAddressBar: () => void;
@@ -109,7 +122,15 @@ export const PreviewPane = forwardRef<PreviewPaneHandle, Props>(
                 // `allow-top-navigation*` — without it the iframe cannot
                 // navigate the parent Tauri webview to an attacker origin,
                 // which would otherwise expose `window.__TAURI__` IPC.
-                sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
+                // ponytail: local file previews (convertFileSrc → asset URL)
+                // drop `allow-same-origin` — the asset protocol scope is ["**"],
+                // so a same-origin asset page's JS could fetch any file on disk
+                // and exfiltrate it. Subresources still load; only fetch/storage break.
+                sandbox={
+                  isAssetPreviewUrl(url)
+                    ? "allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
+                    : "allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
+                }
                 referrerPolicy="no-referrer"
                 allow="clipboard-read; clipboard-write; fullscreen"
               />

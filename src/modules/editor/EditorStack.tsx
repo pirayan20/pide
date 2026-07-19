@@ -1,4 +1,4 @@
-import { cn, isMarkdownPath } from "@/lib/utils";
+import { cn, previewRendererFor } from "@/lib/utils";
 import { MarkdownViewToggle } from "@/modules/markdown";
 import type { EditorTab, Tab } from "@/modules/tabs";
 import { useEffect, useRef } from "react";
@@ -10,7 +10,9 @@ type Props = {
   onDirtyChange: (id: number, dirty: boolean) => void;
   registerHandle: (id: number, handle: EditorPaneHandle | null) => void;
   onCloseTab: (id: number) => void;
-  onSetMarkdownView: (id: number, mode: "rendered" | "raw") => void;
+  onSetRenderView: (id: number, mode: "rendered" | "raw") => void;
+  /** Open an HTML file in the browser preview tab. */
+  onOpenPreview: (path: string) => void;
 };
 
 export function EditorStack({
@@ -19,7 +21,8 @@ export function EditorStack({
   onDirtyChange,
   registerHandle,
   onCloseTab,
-  onSetMarkdownView,
+  onSetRenderView,
+  onOpenPreview,
 }: Props) {
   const editors = tabs.filter(
     (t): t is EditorTab => t.kind === "editor" && !t.cold,
@@ -103,13 +106,24 @@ export function EditorStack({
             aria-hidden={!visible}
           >
             <div className="relative h-full overflow-hidden rounded-md border border-border/60 bg-background">
-              {isMarkdownPath(t.path) && (
+              {previewRendererFor(t.path) !== null ? (
                 <MarkdownViewToggle
                   mode="raw"
-                  onChange={(mode) => onSetMarkdownView(t.id, mode)}
+                  onChange={(mode) => onSetRenderView(t.id, mode)}
                   renderedDisabled={t.dirty}
                   renderedHint="Save to preview"
                 />
+              ) : (
+                /\.html?$/i.test(t.path) && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenPreview(t.path)}
+                    title="Open in browser preview"
+                    className="absolute right-3 top-3 z-10 rounded-md border border-border/60 bg-card/85 px-2 py-0.5 text-[11px] text-muted-foreground shadow-sm backdrop-blur transition-colors hover:text-foreground"
+                  >
+                    Open Preview
+                  </button>
+                )
               )}
               <EditorPane
                 ref={getRefCallback(t.id)}

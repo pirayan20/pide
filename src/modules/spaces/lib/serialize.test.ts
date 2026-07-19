@@ -147,11 +147,11 @@ describe("hydrateTabs", () => {
     ).toEqual([]);
   });
 
-  it("hydrates editor/preview/markdown as cold with derived titles", () => {
+  it("hydrates editor/preview/render as cold with derived titles", () => {
     const serialized: SerializedTab[] = [
       { kind: "editor", path: "/a/foo.ts" },
       { kind: "preview", url: "http://localhost:5173/x" },
-      { kind: "markdown", path: "/a/README.md" },
+      { kind: "render", path: "/a/README.md" },
     ];
     const out = hydrateTabs(serialized, "s1", counter());
     expect(out.every((t) => t.cold === true)).toBe(true);
@@ -160,6 +160,19 @@ describe("hydrateTabs", () => {
       "localhost:5173",
       "README.md",
     ]);
+  });
+
+  it("hydrates a persisted markdown tab as a render tab (legacy alias)", () => {
+    const [restored] = hydrateTabs(
+      [{ kind: "markdown", path: "/a/README.md" }],
+      "s1",
+      counter(),
+    );
+    expect(restored.kind).toBe("render");
+    if (restored.kind !== "render") return;
+    expect(restored.renderer).toBe("markdown");
+    expect(restored.path).toBe("/a/README.md");
+    expect(restored.cold).toBe(true);
   });
 
   it("hydrates every restored tab into the requested Project", () => {
@@ -194,7 +207,8 @@ describe("rebaseSerializedTabs", () => {
           },
         },
         { kind: "editor", path: "/old/repo/a.ts" },
-        { kind: "markdown", path: "/outside/README.md" },
+        { kind: "render", path: "/old/repo/README.md" },
+        { kind: "render", path: "/outside/README.md" },
         { kind: "preview", url: "http://localhost:5173" },
       ],
       "/old/repo",
@@ -205,14 +219,12 @@ describe("rebaseSerializedTabs", () => {
       {
         kind: "terminal",
         tree: {
-          children: [
-            { cwd: "/new/repo" },
-            { cwd: "/new/repo/pkg" },
-          ],
+          children: [{ cwd: "/new/repo" }, { cwd: "/new/repo/pkg" }],
         },
       },
       { kind: "editor", path: "/new/repo/a.ts" },
-      { kind: "markdown", path: "/outside/README.md" },
+      { kind: "render", path: "/new/repo/README.md" },
+      { kind: "render", path: "/outside/README.md" },
       { kind: "preview", url: "http://localhost:5173" },
     ]);
   });

@@ -658,7 +658,7 @@ export function TabIcon({ tab }: { tab: Tab }) {
   if (agent && tab.kind === "terminal") {
     return <AgentIcon agent={agent.name} size={14} className="shrink-0" />;
   }
-  if (tab.kind === "editor" || tab.kind === "markdown") {
+  if (tab.kind === "editor" || tab.kind === "render") {
     const url =
       tab.kind === "editor" && tab.overrideLanguage
         ? fileIconUrl(`dummy.${tab.overrideLanguage}`)

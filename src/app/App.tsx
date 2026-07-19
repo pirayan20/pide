@@ -10,7 +10,8 @@ import { consumeLaunchFiles, getLaunchDir } from "@/lib/launchDir";
 import { IS_WINDOWS } from "@/lib/platform";
 import { quoteShellArg } from "@/lib/shellQuote";
 import { useZoom } from "@/lib/useZoom";
-import { isMarkdownPath } from "@/lib/utils";
+import { previewRendererFor } from "@/lib/utils";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import {
   AgentNotificationsBridge,
   nextAttentionTarget,
@@ -131,8 +132,8 @@ export default function App() {
     openFileTab,
     pinTab,
     newPreviewTab,
-    newMarkdownTab,
-    setMarkdownView,
+    newRenderTab,
+    setRenderView,
     setOverrideLanguage,
     openGitDiffTab,
     openCommitHistoryTab,
@@ -538,13 +539,14 @@ export default function App() {
 
   const handleOpenFile = useCallback(
     (path: string, pin?: boolean) => {
-      // Markdown opens in its rendered view by default; a per-tab toggle flips
-      // it to the raw editor. Other files default to preview (pin=false);
-      // explicit actions like context-menu "Open" pass pin=true to persist.
-      if (isMarkdownPath(path)) newMarkdownTab(path);
+      // Files with a renderer open in their rendered view by default; a
+      // per-tab toggle flips to the raw editor. Other files default to
+      // preview (pin=false); explicit actions like context-menu "Open" pass
+      // pin=true to persist.
+      if (previewRendererFor(path)) newRenderTab(path);
       else openFileTab(path, pin ?? false);
     },
-    [openFileTab, newMarkdownTab],
+    [openFileTab, newRenderTab],
   );
 
   const [pendingLaunchFiles, setPendingLaunchFiles] = useState<string[]>([]);
@@ -626,7 +628,7 @@ export default function App() {
     return null;
   })();
   const explorerActiveFilePath =
-    activeTab?.kind === "editor" || activeTab?.kind === "markdown"
+    activeTab?.kind === "editor" || activeTab?.kind === "render"
       ? activeTab.path
       : null;
   const { sourceControl, toggleSourceControl, openGitGraphFromContext } =
@@ -649,6 +651,14 @@ export default function App() {
       return id;
     },
     [newPreviewTab],
+  );
+
+  // Open a local HTML file in the browser preview tab via the asset protocol.
+  const openHtmlPreview = useCallback(
+    (path: string) => {
+      openPreviewTab(convertFileSrc(path));
+    },
+    [openPreviewTab],
   );
 
   const splitActivePaneInActiveTab = useCallback(
@@ -1404,7 +1414,8 @@ export default function App() {
                       onPreviewUrlChange={handlePreviewUrl}
                       onOpenCommitFile={openCommitFileDiffTab}
                       onGitHistorySearchHandle={setGitHistoryHandle}
-                      onSetMarkdownView={setMarkdownView}
+                      onSetRenderView={setRenderView}
+                      onOpenPreview={openHtmlPreview}
                     />
                   </div>
 

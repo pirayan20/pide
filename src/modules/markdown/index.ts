@@ -1,2 +1,2 @@
-export { MarkdownStack } from "./MarkdownStackLazy";
+export { RenderStack } from "./RenderStackLazy";
 export { MarkdownViewToggle } from "./MarkdownViewToggle";

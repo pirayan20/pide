@@ -22,20 +22,43 @@ const iframeJsx = (iframeMatch?.[0] ?? "")
   .replace(/\/\*[\s\S]*?\*\//g, "")
   .replace(/\/\/[^\n]*/g, "");
 
+// The sandbox is a conditional expression: asset-URL previews (local files
+// served through convertFileSrc) drop `allow-same-origin` so their JS cannot
+// read arbitrary files via the ["**"]-scoped asset protocol; everything else
+// keeps it so dev servers work. Both branches are string literals containing
+// `allow-scripts`.
+const sandboxBranches = [
+  ...iframeJsx.matchAll(/"([^"]*allow-scripts[^"]*)"/g),
+].map((m) => m[1]);
+
 describe("PreviewPane iframe sandbox", () => {
   it("declares an iframe in the source", () => {
     expect(iframeJsx).not.toBe("");
   });
 
-  it("includes a sandbox attribute", () => {
-    expect(iframeJsx).toMatch(/sandbox="[^"]*"/);
+  it("has both sandbox branches (asset + non-asset)", () => {
+    expect(sandboxBranches).toHaveLength(2);
   });
 
-  it("grants allow-scripts and allow-same-origin", () => {
-    // These two are what makes a dev preview useful — strip either and dev
-    // servers stop working.
-    expect(iframeJsx).toMatch(/sandbox="[^"]*allow-scripts/);
-    expect(iframeJsx).toMatch(/sandbox="[^"]*allow-same-origin/);
+  it("grants allow-scripts in every branch", () => {
+    // Strip this and dev servers / previews stop working.
+    for (const s of sandboxBranches) expect(s).toContain("allow-scripts");
+  });
+
+  it("keeps allow-same-origin only for non-asset URLs", () => {
+    // Exactly one branch (the dev/http preview) may grant same-origin; the
+    // asset-URL branch must NOT, or local HTML could exfiltrate disk files.
+    const withSameOrigin = sandboxBranches.filter((s) =>
+      s.includes("allow-same-origin"),
+    );
+    expect(withSameOrigin).toHaveLength(1);
+  });
+
+  it("keys the sandbox choice on an asset URL", () => {
+    // The asset check lives in the isAssetPreviewUrl helper (parsed via URL so
+    // the host match is case-insensitive), not inline in the iframe JSX.
+    expect(src).toMatch(/asset:/);
+    expect(src).toMatch(/asset\.localhost/);
   });
 
   it("does NOT include allow-top-navigation* tokens", () => {
@@ -48,8 +71,10 @@ describe("PreviewPane iframe sandbox", () => {
   it("does NOT include allow-popups-without-allow-popups-to-escape-sandbox combo", () => {
     // If popups are allowed, they MUST escape the sandbox cleanly — otherwise
     // a popup window inherits sandbox flags and we get hard-to-debug behavior.
-    if (/allow-popups\b/.test(iframeJsx)) {
-      expect(iframeJsx).toMatch(/allow-popups-to-escape-sandbox/);
+    for (const s of sandboxBranches) {
+      if (/allow-popups\b/.test(s)) {
+        expect(s).toContain("allow-popups-to-escape-sandbox");
+      }
     }
   });
 

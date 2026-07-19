@@ -5,7 +5,7 @@ import { traceEager } from "../../scripts/eager-graph.mjs";
 // must stay out of the eager graph of both window entries so they load only
 // when the user opens those surfaces. A static import that re-introduces any of
 // these will fail here. xterm is intentionally eager and is not asserted against.
-const HEAVY = ["streamdown", "@codemirror", "@uiw"];
+const HEAVY = ["streamdown", "mermaid", "@codemirror", "@uiw"];
 
 function heavyEagerHits(entry: string): string[] {
   const { hits } = traceEager(entry, HEAVY);

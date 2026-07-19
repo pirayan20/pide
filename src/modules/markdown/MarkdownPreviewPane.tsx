@@ -1,22 +1,8 @@
 import { MarkdownCode } from "@/modules/markdown/components/MarkdownCode";
 import { cn } from "@/lib/utils";
-import { currentWorkspaceEnv } from "@/modules/workspace";
-import { invoke } from "@tauri-apps/api/core";
-import { useEffect, useState } from "react";
 import { Streamdown } from "streamdown";
 import { MarkdownViewToggle } from "./MarkdownViewToggle";
-
-type ReadResult =
-  | { kind: "text"; content: string; size: number }
-  | { kind: "binary"; size: number }
-  | { kind: "toolarge"; size: number; limit: number };
-
-type Status =
-  | { kind: "loading" }
-  | { kind: "ready"; content: string }
-  | { kind: "binary" }
-  | { kind: "toolarge"; size: number; limit: number }
-  | { kind: "error"; message: string };
+import { useFileText } from "./useFileText";
 
 type Props = {
   path: string;
@@ -27,32 +13,7 @@ type Props = {
 const components = { code: MarkdownCode };
 
 export function MarkdownPreviewPane({ path, visible, onSetView }: Props) {
-  const [status, setStatus] = useState<Status>({ kind: "loading" });
-
-  useEffect(() => {
-    let cancelled = false;
-    setStatus({ kind: "loading" });
-    invoke<ReadResult>("fs_read_file", {
-      path,
-      workspace: currentWorkspaceEnv(),
-    })
-      .then((res) => {
-        if (cancelled) return;
-        if (res.kind === "text") {
-          setStatus({ kind: "ready", content: res.content });
-        } else if (res.kind === "binary") {
-          setStatus({ kind: "binary" });
-        } else {
-          setStatus({ kind: "toolarge", size: res.size, limit: res.limit });
-        }
-      })
-      .catch((e) => {
-        if (!cancelled) setStatus({ kind: "error", message: String(e) });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [path]);
+  const status = useFileText(path);
 
   return (
     <div

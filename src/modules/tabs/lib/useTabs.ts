@@ -1,4 +1,4 @@
-import { isMarkdownPath } from "@/lib/utils";
+import { previewRendererFor, type RenderKind } from "@/lib/utils";
 import { rebasePath } from "@/modules/spaces/lib/projectPaths";
 import {
   findLeafCwd,
@@ -63,12 +63,17 @@ export type PreviewTab = TabBase & {
   url: string;
 };
 
-export type MarkdownTab = TabBase & {
+export type RenderTab = TabBase & {
   id: number;
-  kind: "markdown";
+  kind: "render";
   title: string;
   path: string;
+  renderer: RenderKind;
+  overrideLanguage?: string | null;
 };
+
+/** Alias kept for external call sites; `RenderTab` is the canonical name. */
+export type MarkdownTab = RenderTab;
 
 export type GitDiffTab = TabBase & {
   id: number;
@@ -103,7 +108,7 @@ export type Tab =
   | TerminalTab
   | EditorTab
   | PreviewTab
-  | MarkdownTab
+  | RenderTab
   | GitDiffTab
   | GitHistoryTab
   | GitCommitFileDiffTab;
@@ -480,14 +485,15 @@ export function useTabs() {
     return id;
   }, []);
 
-  const newMarkdownTab = useCallback((path: string) => {
+  const newRenderTab = useCallback((path: string) => {
     const projectId = activeProjectIdRef.current;
     if (!projectId) return null;
+    const renderer = previewRendererFor(path)!;
     let targetId: number | null = null;
     setTabs((current) => {
       const existing = current.find(
         (tab) =>
-          tab.kind === "markdown" &&
+          tab.kind === "render" &&
           tab.projectId === projectId &&
           tab.path === path,
       );
@@ -501,11 +507,12 @@ export function useTabs() {
         ...current,
         {
           id,
-          kind: "markdown",
+          kind: "render",
           projectId,
           title: basename(path),
           path,
-        },
+          renderer,
+        } satisfies RenderTab,
       ];
     });
     if (targetId !== null) setActiveId(targetId);
@@ -524,44 +531,40 @@ export function useTabs() {
     );
   }, []);
 
-  const setMarkdownView = useCallback(
-    (id: number, mode: "rendered" | "raw") => {
-      setTabs((curr) =>
-        curr.map((t) => {
-          if (
-            t.id !== id ||
-            !isMarkdownPath((t as { path?: string }).path ?? "")
-          )
-            return t;
-          if (mode === "raw" && t.kind === "markdown") {
-            return {
-              ...t,
-              kind: "editor" as const,
-              dirty: false,
-              preview: false,
-              overrideLanguage:
-                (t as { overrideLanguage?: string | null }).overrideLanguage ??
-                null,
-            };
-          }
-          if (mode === "rendered" && t.kind === "editor") {
-            if (t.dirty) return t;
-            return {
-              id: t.id,
-              kind: "markdown" as const,
-              projectId: t.projectId,
-              cold: t.cold,
-              title: t.title,
-              path: t.path,
-              overrideLanguage: t.overrideLanguage ?? null,
-            };
-          }
+  const setRenderView = useCallback((id: number, mode: "rendered" | "raw") => {
+    setTabs((curr) =>
+      curr.map((t) => {
+        if (
+          t.id !== id ||
+          previewRendererFor((t as { path?: string }).path ?? "") === null
+        )
           return t;
-        }),
-      );
-    },
-    [],
-  );
+        if (mode === "raw" && t.kind === "render") {
+          return {
+            ...t,
+            kind: "editor" as const,
+            dirty: false,
+            preview: false,
+            overrideLanguage: t.overrideLanguage ?? null,
+          };
+        }
+        if (mode === "rendered" && t.kind === "editor") {
+          if (t.dirty) return t;
+          return {
+            id: t.id,
+            kind: "render" as const,
+            projectId: t.projectId,
+            cold: t.cold,
+            title: t.title,
+            path: t.path,
+            renderer: previewRendererFor(t.path)!,
+            overrideLanguage: t.overrideLanguage ?? null,
+          };
+        }
+        return t;
+      }),
+    );
+  }, []);
 
   const openGitDiffTab = useCallback(
     (input: {
@@ -763,7 +766,7 @@ export function useTabs() {
             }),
           };
         }
-        if (x.kind === "markdown") {
+        if (x.kind === "render") {
           return {
             ...x,
             ...(patch.title !== undefined && { title: patch.title }),
@@ -990,7 +993,7 @@ export function useTabs() {
               paneTree: rebaseNode(tab.paneTree),
             };
           }
-          if (tab.kind === "editor" || tab.kind === "markdown") {
+          if (tab.kind === "editor" || tab.kind === "render") {
             return {
               ...tab,
               path: rebasePath(tab.path, oldRoot, newRoot, caseInsensitive),
@@ -1025,8 +1028,8 @@ export function useTabs() {
     openFileTab,
     pinTab,
     newPreviewTab,
-    newMarkdownTab,
-    setMarkdownView,
+    newRenderTab,
+    setRenderView,
     openGitDiffTab,
     openCommitHistoryTab,
     openCommitFileDiffTab,

@@ -19,6 +19,7 @@ export const DEFAULT_WATCH = [
   "@ai-sdk",
   "ai",
   "streamdown",
+  "mermaid",
   "@codemirror",
   "@uiw",
   "motion",
