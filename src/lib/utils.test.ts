@@ -23,6 +23,11 @@ describe("previewRendererFor", () => {
     expect(previewRendererFor("notebook.IPYNB")).toBe("notebook");
   });
 
+  it("returns svg for svg (case-insensitive)", () => {
+    expect(previewRendererFor("logo.svg")).toBe("svg");
+    expect(previewRendererFor("logo.SVG")).toBe("svg");
+  });
+
   it("returns null for renderer-less extensions", () => {
     expect(previewRendererFor("main.ts")).toBeNull();
   });

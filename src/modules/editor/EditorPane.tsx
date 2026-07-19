@@ -410,16 +410,11 @@ export const EditorPane = memo(
     }
     if (doc.status === "binary" || doc.status === "toolarge") {
       const ext = path.split(".").pop()?.toLowerCase() ?? "";
-      const isImage = [
-        "png",
-        "jpg",
-        "jpeg",
-        "gif",
-        "webp",
-        "svg",
-        "ico",
-        "bmp",
-      ].includes(ext);
+      // svg is not here: it's text (routes to the render tab as an image with
+      // a source toggle, see previewRendererFor). These are the binary formats.
+      const isImage = ["png", "jpg", "jpeg", "gif", "webp", "ico", "bmp"].includes(
+        ext,
+      );
       const isVideo = ["mp4", "webm", "ogg", "mov"].includes(ext);
       const isAudio = ["mp3", "wav", "flac", "aac", "m4a"].includes(ext);
       const isPdf = ext === "pdf";

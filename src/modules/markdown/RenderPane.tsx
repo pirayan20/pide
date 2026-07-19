@@ -19,6 +19,9 @@ const NotebookPaneLazy = lazy(() =>
     default: m.NotebookPane,
   })),
 );
+const SvgPaneLazy = lazy(() =>
+  import("./renderers/SvgPane").then((m) => ({ default: m.SvgPane })),
+);
 
 type PaneProps = ComponentProps<typeof MarkdownPreviewPaneType>;
 
@@ -29,6 +32,7 @@ const renderers: Record<RenderKind, ComponentType<PaneProps>> = {
   mermaid: MermaidPaneLazy,
   csv: CsvPaneLazy,
   notebook: NotebookPaneLazy,
+  svg: SvgPaneLazy,
 };
 
 type Props = PaneProps & { renderer: RenderKind };
