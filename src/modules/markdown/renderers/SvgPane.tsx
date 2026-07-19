@@ -23,7 +23,13 @@ export function SvgPane({ path, visible, onSetView }: Props) {
     >
       <MarkdownViewToggle mode="rendered" onChange={onSetView} />
       <div className="min-h-0 flex-1">
-        <ImagePreview src={convertFileSrc(path)} alt={filename} />
+        {/* surface (not checkerboard): the SVG renders on the theme background,
+            so a transparent SVG shows dark on a dark theme, matching Orca. */}
+        <ImagePreview
+          src={convertFileSrc(path)}
+          alt={filename}
+          background="surface"
+        />
       </div>
     </div>
   );

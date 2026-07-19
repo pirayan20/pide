@@ -9,6 +9,12 @@ import {
 type Props = {
   src: string;
   alt?: string;
+  /**
+   * "checker": transparency checkerboard (default, for raster images).
+   * "surface": no pattern — the image sits on the theme background, so a
+   * transparent SVG shows dark on a dark theme (matches Orca).
+   */
+  background?: "checker" | "surface";
 };
 
 const CHECKERBOARD_STYLE = {
@@ -19,7 +25,7 @@ const CHECKERBOARD_STYLE = {
 
 // Wheel-to-zoom, drag-to-pan, double-click/reset to fit. CSS transform only —
 // object-contain stays the resting (fit) state.
-export function ImagePreview({ src, alt }: Props) {
+export function ImagePreview({ src, alt, background = "checker" }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [transform, setTransform] = useState<ImageTransform>(FIT_TRANSFORM);
   const [dragging, setDragging] = useState(false);
@@ -110,7 +116,7 @@ export function ImagePreview({ src, alt }: Props) {
           dragging ? "cursor-grabbing" : "cursor-grab",
         )}
         style={{
-          ...CHECKERBOARD_STYLE,
+          ...(background === "checker" ? CHECKERBOARD_STYLE : {}),
           transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
         }}
         alt={alt}
