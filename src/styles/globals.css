@@ -52,6 +52,10 @@
 }
 
 :root {
+    /* Declares the UA color scheme so native controls, scrollbars, and
+       <img>-embedded SVGs with prefers-color-scheme media queries render the
+       matching variant (the .dark class flips this to dark). */
+    color-scheme: light;
     --background: oklch(1 0 0);
     --foreground: oklch(0.148 0.004 228.8);
     --card: oklch(1 0 0);
@@ -87,6 +91,7 @@
 }
 
 .dark {
+    color-scheme: dark;
     --background: oklch(0.148 0.004 228.8);
     --foreground: oklch(0.987 0.002 197.1);
     --card: oklch(0.218 0.008 223.9);
