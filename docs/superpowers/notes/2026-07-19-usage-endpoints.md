@@ -118,9 +118,19 @@ Code's does. What was found instead:
   `chatgpt-account-id`-style header carrying `tokens.account_id` is also
   referenced in the binary.
 
-**Status: ships `Unavailable` until a real body is confirmed.** No
-authenticated call was made; `codex_usage.json` is the brief's
-representative body with `"_unconfirmed": true`.
+**Status: CONFIRMED live (2026-07-19).** The endpoint is
+`GET https://chatgpt.com/backend-api/codex/usage` with
+`Authorization: Bearer <access_token>` + `chatgpt-account-id: <account_id>`.
+The stored `tokens.access_token` is usually expired, so first refresh it:
+`POST https://auth.openai.com/oauth/token` with
+`{client_id: "app_EMoamEEZ73f0CkXaXp7hrann", grant_type: "refresh_token",
+refresh_token, scope: "openid profile email"}`. The refresh token is
+**reusable (no rotation)**, so the refresh is read-only — auth.json is never
+written. Response shape (verified against a real account):
+`{ email, plan_type, rate_limit: { primary_window, secondary_window },
+additional_rate_limits: [ { limit_name, rate_limit: { primary_window } } ] }`
+where `*_window = { used_percent, limit_window_seconds, reset_at }`
+(reset_at is epoch **seconds**). `codex.rs` implements exactly this.
 
 ---
 

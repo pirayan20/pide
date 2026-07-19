@@ -1,0 +1,32 @@
+{
+  "email": "user@example.com",
+  "plan_type": "prolite",
+  "rate_limit": {
+    "allowed": true,
+    "limit_reached": false,
+    "primary_window": {
+      "used_percent": 26,
+      "limit_window_seconds": 604800,
+      "reset_after_seconds": 503861,
+      "reset_at": 1784953410
+    },
+    "secondary_window": null
+  },
+  "additional_rate_limits": [
+    {
+      "limit_name": "GPT-5.3-Codex-Spark",
+      "metered_feature": "codex_bengalfox",
+      "rate_limit": {
+        "allowed": true,
+        "limit_reached": false,
+        "primary_window": {
+          "used_percent": 0,
+          "limit_window_seconds": 604800,
+          "reset_at": 1784976112
+        },
+        "secondary_window": null
+      }
+    }
+  ],
+  "credits": { "has_credits": false, "unlimited": false, "balance": "0" }
+}

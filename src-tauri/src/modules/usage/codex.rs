@@ -1,102 +1,107 @@
 use super::{status_from_windows, ProviderUsage, QuotaWindow, UsageStatus};
-use serde_json::Value;
-use std::io::BufRead;
-use std::path::{Path, PathBuf};
+use serde_json::{json, Value};
+use std::time::Duration;
 
-// Codex has no usage endpoint (the Task 1 spike confirmed none). Instead it
-// records a `rate_limits` snapshot on each turn into its session rollout files
-// under ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl. We read the freshest
-// snapshot from disk — no token, no network. Only the rate_limits object is
-// extracted; conversation content in those files is never read out.
+// Codex has no unauthenticated usage source. Its stored access token expires,
+// so — like the CLI does on startup — we exchange the (reusable) refresh token
+// for a fresh access token in memory, then read live usage. Confirmed shape:
+//   GET https://chatgpt.com/backend-api/codex/usage
+//   -> { email, plan_type, rate_limit: { primary_window, secondary_window },
+//        additional_rate_limits: [ { limit_name, rate_limit: { primary_window } } ] }
+// where *_window = { used_percent, limit_window_seconds, reset_at (epoch secs) }.
+const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
+const TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
+const USAGE_URL: &str = "https://chatgpt.com/backend-api/codex/usage";
 
-fn window_label(window_minutes: i64) -> String {
-    match window_minutes {
-        0 => "Session".into(),
-        10080 => "Weekly".into(),
-        m if m % 1440 == 0 => format!("{}d", m / 1440),
-        m if m % 60 == 0 => format!("{}h", m / 60),
-        m => format!("{}m", m),
+struct CodexAuth {
+    refresh_token: String,
+    account_id: Option<String>,
+}
+
+fn parse_codex_auth(json_str: &str) -> Option<CodexAuth> {
+    let v: Value = serde_json::from_str(json_str).ok()?;
+    let tokens = v.get("tokens")?;
+    Some(CodexAuth {
+        refresh_token: tokens.get("refresh_token")?.as_str()?.to_string(),
+        account_id: tokens.get("account_id").and_then(Value::as_str).map(str::to_string),
+    })
+}
+
+fn read_auth() -> Option<CodexAuth> {
+    let path = dirs::home_dir()?.join(".codex/auth.json");
+    parse_codex_auth(&std::fs::read_to_string(path).ok()?)
+}
+
+fn label_for(window_seconds: i64) -> String {
+    match window_seconds {
+        604800 => "Weekly".into(),
+        s if s % 86400 == 0 && s >= 86400 => format!("{}d", s / 86400),
+        s if s % 3600 == 0 && s >= 3600 => format!("{}h", s / 3600),
+        s if s > 0 => format!("{}m", s / 60),
+        _ => "Session".into(),
     }
 }
 
-fn window_from(node: &Value) -> Option<QuotaWindow> {
+// "GPT-5.3-Codex-Spark" -> "Spark" (mirrors how the compact chip labels
+// model-specific windows, e.g. Claude's "Fable").
+fn short_name(name: &str) -> String {
+    name.rsplit('-').next().unwrap_or(name).to_string()
+}
+
+// A *_window node -> QuotaWindow. `label` overrides the window-duration label
+// (used for the named additional limits).
+fn window_from(node: &Value, label: Option<String>) -> Option<QuotaWindow> {
     let used = node.get("used_percent").and_then(Value::as_f64)?;
-    let mins = node.get("window_minutes").and_then(Value::as_i64).unwrap_or(0);
-    // resets_at is an epoch in seconds; QuotaWindow.resets_at is unix ms.
-    let resets_at = node.get("resets_at").and_then(Value::as_i64).map(|s| s * 1000);
-    Some(QuotaWindow { label: window_label(mins), used_pct: used as f32, resets_at })
+    let secs = node.get("limit_window_seconds").and_then(Value::as_i64).unwrap_or(0);
+    let resets_at = node.get("reset_at").and_then(Value::as_i64).map(|s| s * 1000);
+    Some(QuotaWindow {
+        label: label.unwrap_or_else(|| label_for(secs)),
+        used_pct: used as f32,
+        resets_at,
+    })
 }
 
-pub fn parse_rate_limits(rl: &Value) -> Vec<QuotaWindow> {
-    ["primary", "secondary"]
-        .iter()
-        .filter_map(|k| rl.get(*k))
-        .filter_map(window_from)
-        .collect()
-}
-
-// A rollout line wraps the snapshot as { type, payload: { .. rate_limits .. } };
-// recurse to find the (non-null) rate_limits object regardless of exact nesting.
-fn find_rate_limits(v: &Value) -> Option<&Value> {
-    match v {
-        Value::Object(m) => {
-            if let Some(rl) = m.get("rate_limits") {
-                if !rl.is_null() {
-                    return Some(rl);
-                }
-            }
-            m.values().find_map(find_rate_limits)
-        }
-        Value::Array(a) => a.iter().find_map(find_rate_limits),
-        _ => None,
+fn parse_codex_usage(body: &Value) -> (Vec<QuotaWindow>, Option<String>, Option<String>) {
+    let mut windows = Vec::new();
+    if let Some(rl) = body.get("rate_limit") {
+        windows.extend(rl.get("primary_window").and_then(|n| window_from(n, None)));
+        windows.extend(rl.get("secondary_window").and_then(|n| window_from(n, None)));
     }
+    for extra in body.get("additional_rate_limits").and_then(Value::as_array).into_iter().flatten() {
+        let label = extra.get("limit_name").and_then(Value::as_str).map(short_name);
+        windows.extend(
+            extra
+                .get("rate_limit")
+                .and_then(|r| r.get("primary_window"))
+                .and_then(|n| window_from(n, label)),
+        );
+    }
+    let account = body.get("email").and_then(Value::as_str).map(str::to_string);
+    let plan = body.get("plan_type").and_then(Value::as_str).map(str::to_string);
+    (windows, account, plan)
 }
 
-fn max_subdir(dir: &Path) -> Option<PathBuf> {
-    std::fs::read_dir(dir)
+// ponytail: refresh on every fetch (one extra request per poll). Cache by the
+// token's expires_in if the poll cadence ever makes this matter.
+fn refresh_access_token(c: &reqwest::blocking::Client, refresh_token: &str) -> Option<String> {
+    let resp = c
+        .post(TOKEN_URL)
+        .json(&json!({
+            "client_id": CLIENT_ID,
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+            "scope": "openid profile email",
+        }))
+        .send()
+        .ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    resp.json::<Value>()
         .ok()?
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| p.is_dir())
-        .max_by(|a, b| a.file_name().cmp(&b.file_name()))
-}
-
-// ponytail: descend sessions/YYYY/MM/DD by greatest-named entry (zero-padded
-// dates sort chronologically), then newest .jsonl by mtime in that day — the
-// freshest snapshot for an active session, without stat-ing every file.
-fn newest_rollout() -> Option<PathBuf> {
-    let mut dir = dirs::home_dir()?.join(".codex/sessions");
-    for _ in 0..3 {
-        dir = max_subdir(&dir)?;
-    }
-    std::fs::read_dir(&dir)
-        .ok()?
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().is_some_and(|x| x == "jsonl"))
-        .max_by_key(|e| e.metadata().and_then(|m| m.modified()).ok())
-        .map(|e| e.path())
-}
-
-fn latest_rate_limits() -> Option<Value> {
-    let file = std::fs::File::open(newest_rollout()?).ok()?;
-    let mut last = None;
-    for line in std::io::BufReader::new(file).lines().map_while(Result::ok) {
-        if !line.contains("rate_limits") {
-            continue;
-        }
-        if let Ok(v) = serde_json::from_str::<Value>(&line) {
-            if let Some(rl) = find_rate_limits(&v) {
-                last = Some(rl.clone());
-            }
-        }
-    }
-    last
-}
-
-fn codex_logged_in() -> bool {
-    dirs::home_dir()
-        .map(|h| h.join(".codex/auth.json").exists())
-        .unwrap_or(false)
+        .get("access_token")
+        .and_then(Value::as_str)
+        .map(str::to_string)
 }
 
 fn now_ms() -> i64 {
@@ -106,25 +111,52 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-fn usage(status: UsageStatus, windows: Vec<QuotaWindow>) -> ProviderUsage {
-    ProviderUsage { provider: "codex".into(), status, account: None, plan: None, windows, fetched_at: now_ms() }
+fn usage(
+    status: UsageStatus,
+    windows: Vec<QuotaWindow>,
+    account: Option<String>,
+    plan: Option<String>,
+) -> ProviderUsage {
+    ProviderUsage { provider: "codex".into(), status, account, plan, windows, fetched_at: now_ms() }
 }
 
 pub fn fetch_codex() -> ProviderUsage {
-    if !codex_logged_in() {
-        return usage(UsageStatus::SignedOut, vec![]);
+    let Some(auth) = read_auth() else {
+        return usage(UsageStatus::SignedOut, vec![], None, None);
+    };
+    let Some(client) =
+        reqwest::blocking::Client::builder().timeout(Duration::from_secs(10)).build().ok()
+    else {
+        return usage(UsageStatus::Unavailable, vec![], None, None);
+    };
+    // Access token in auth.json is usually expired; refresh it (read-only).
+    let Some(access) = refresh_access_token(&client, &auth.refresh_token) else {
+        return usage(UsageStatus::AuthExpired, vec![], None, None);
+    };
+    let mut req = client
+        .get(USAGE_URL)
+        .bearer_auth(&access)
+        .header("User-Agent", "codex_cli_rs")
+        .header("originator", "codex_cli_rs");
+    if let Some(id) = &auth.account_id {
+        req = req.header("chatgpt-account-id", id);
     }
-    match latest_rate_limits() {
-        Some(rl) => {
-            let windows = parse_rate_limits(&rl);
-            if windows.is_empty() {
-                usage(UsageStatus::Unavailable, vec![])
-            } else {
-                usage(status_from_windows(&windows), windows)
-            }
+    match req.send() {
+        Ok(r) if r.status() == reqwest::StatusCode::UNAUTHORIZED => {
+            usage(UsageStatus::AuthExpired, vec![], None, None)
         }
-        // Logged in but no snapshot yet (never ran a turn) — nothing to show.
-        None => usage(UsageStatus::Unavailable, vec![]),
+        Ok(r) if r.status().is_success() => match r.json::<Value>() {
+            Ok(body) => {
+                let (windows, account, plan) = parse_codex_usage(&body);
+                if windows.is_empty() {
+                    usage(UsageStatus::Unavailable, vec![], account, plan)
+                } else {
+                    usage(status_from_windows(&windows), windows, account, plan)
+                }
+            }
+            Err(_) => usage(UsageStatus::Unavailable, vec![], None, None),
+        },
+        _ => usage(UsageStatus::Unavailable, vec![], None, None),
     }
 }
 
@@ -133,51 +165,50 @@ mod tests {
     use super::*;
 
     #[test]
-    fn window_label_maps_common_windows() {
-        assert_eq!(window_label(300), "5h");
-        assert_eq!(window_label(10080), "Weekly");
-        assert_eq!(window_label(60), "1h");
-        assert_eq!(window_label(2880), "2d");
+    fn parse_auth_extracts_refresh_and_account() {
+        let a = parse_codex_auth(r#"{"tokens":{"refresh_token":"rt-1","account_id":"acc-1"}}"#).unwrap();
+        assert_eq!(a.refresh_token, "rt-1");
+        assert_eq!(a.account_id.as_deref(), Some("acc-1"));
     }
 
     #[test]
-    fn parses_rate_limits_primary_and_secondary() {
-        let rl: Value =
-            serde_json::from_str(include_str!("fixtures/codex_rate_limits.json")).unwrap();
-        let windows = parse_rate_limits(&rl);
+    fn parse_auth_missing_refresh_is_none() {
+        assert!(parse_codex_auth(r#"{"tokens":{"access_token":"x"}}"#).is_none());
+    }
+
+    #[test]
+    fn label_for_common_windows() {
+        assert_eq!(label_for(604800), "Weekly");
+        assert_eq!(label_for(18000), "5h");
+        assert_eq!(label_for(3600), "1h");
+        assert_eq!(label_for(86400), "1d");
+    }
+
+    #[test]
+    fn short_name_takes_last_segment() {
+        assert_eq!(short_name("GPT-5.3-Codex-Spark"), "Spark");
+        assert_eq!(short_name("Weekly"), "Weekly");
+    }
+
+    #[test]
+    fn parses_usage_windows_account_plan() {
+        let body: Value =
+            serde_json::from_str(include_str!("fixtures/codex_usage.json")).unwrap();
+        let (windows, account, plan) = parse_codex_usage(&body);
+        // primary weekly + the named additional limit; null secondary skipped.
         assert_eq!(windows.len(), 2);
-        assert_eq!(windows[0].label, "5h");
+        assert_eq!(windows[0].label, "Weekly");
         assert_eq!(windows[0].used_pct, 26.0);
-        assert_eq!(windows[0].resets_at, Some(1_784_709_047 * 1000));
-        assert_eq!(windows[1].label, "Weekly");
-        assert_eq!(windows[1].used_pct, 4.0);
+        assert_eq!(windows[0].resets_at, Some(1_784_953_410 * 1000));
+        assert_eq!(windows[1].label, "Spark");
+        assert_eq!(windows[1].used_pct, 0.0);
+        assert_eq!(account.as_deref(), Some("user@example.com"));
+        assert_eq!(plan.as_deref(), Some("prolite"));
     }
 
     #[test]
-    fn null_secondary_is_skipped() {
-        let rl: Value = serde_json::from_str(
-            r#"{"primary":{"used_percent":50.0,"window_minutes":300,"resets_at":1},"secondary":null}"#,
-        )
-        .unwrap();
-        let windows = parse_rate_limits(&rl);
-        assert_eq!(windows.len(), 1);
-        assert_eq!(windows[0].label, "5h");
-    }
-
-    #[test]
-    fn finds_rate_limits_nested_in_payload() {
-        let line: Value = serde_json::from_str(
-            r#"{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":9.0,"window_minutes":300,"resets_at":2}}}}"#,
-        )
-        .unwrap();
-        let rl = find_rate_limits(&line).unwrap();
-        assert_eq!(parse_rate_limits(rl)[0].used_pct, 9.0);
-    }
-
-    #[test]
-    fn ignores_null_rate_limits_line() {
-        let line: Value =
-            serde_json::from_str(r#"{"type":"event_msg","payload":{"rate_limits":null}}"#).unwrap();
-        assert!(find_rate_limits(&line).is_none());
+    fn empty_when_no_rate_limit() {
+        let (w, _, _) = parse_codex_usage(&json!({}));
+        assert!(w.is_empty());
     }
 }
