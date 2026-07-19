@@ -12,6 +12,10 @@ type UsageStoreState = {
   refresh: (provider: string) => Promise<void>;
   connect: (provider: string) => Promise<void>;
   disconnect: (provider: string) => Promise<void>;
+  login: (provider: string) => Promise<void>;
+  loginStart: (provider: string) => Promise<void>;
+  loginFinish: (provider: string, code: string) => Promise<void>;
+  logout: (provider: string) => Promise<void>;
   startAutoRefresh: () => () => void;
 };
 
@@ -59,6 +63,29 @@ export const useUsageStore = create<UsageStoreState>((set, get) => ({
 
   disconnect: async (provider) => {
     await invoke("usage_disconnect", { provider }).catch(() => {});
+    set((s) => ({
+      providers: s.providers.filter((p) => p.provider !== provider),
+    }));
+  },
+
+  login: async (provider) => {
+    await invoke("usage_login", { provider }).catch(() => {});
+    await get().refresh(provider);
+  },
+
+  loginStart: async (provider) => {
+    const url = await invoke<string>("usage_login_start", { provider });
+    const { openUrl } = await import("@tauri-apps/plugin-opener");
+    await openUrl(url);
+  },
+
+  loginFinish: async (provider, code) => {
+    await invoke("usage_login_finish", { provider, code }).catch(() => {});
+    await get().refresh(provider);
+  },
+
+  logout: async (provider) => {
+    await invoke("usage_logout", { provider }).catch(() => {});
     set((s) => ({
       providers: s.providers.filter((p) => p.provider !== provider),
     }));
