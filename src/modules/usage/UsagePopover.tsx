@@ -1,5 +1,4 @@
 import { AgentIcon } from "@/modules/agents/lib/agentIcon";
-import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import {
   formatFreshness,
   formatReset,
@@ -10,7 +9,7 @@ import type { ProviderUsage } from "./lib/types";
 import { useUsageStore } from "./store/usageStore";
 
 export function UsagePopover({ usage }: { usage: ProviderUsage }) {
-  const logout = useUsageStore((s) => s.logout);
+  const disconnect = useUsageStore((s) => s.disconnect);
   const name =
     usage.provider === "claude"
       ? "Claude"
@@ -72,16 +71,9 @@ export function UsagePopover({ usage }: { usage: ProviderUsage }) {
         <button
           type="button"
           className="mt-1 text-muted-foreground hover:text-foreground"
-          onClick={() => void logout(usage.provider)}
+          onClick={() => void disconnect(usage.provider)}
         >
           Disconnect
-        </button>
-        <button
-          type="button"
-          className="mt-1 block text-muted-foreground hover:text-foreground"
-          onClick={() => void openSettingsWindow("accounts")}
-        >
-          Manage Accounts…
         </button>
       </div>
     </div>

@@ -1,6 +1,6 @@
 pub mod modules;
 
-use modules::{agent, fs, git, history, lsp, oauth, pty, shell, usage, workspace};
+use modules::{agent, fs, git, history, lsp, pty, shell, usage, workspace};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
@@ -226,7 +226,6 @@ pub fn run() {
         .manage(lsp::LspState::default())
         .manage(fs::grep::ContentSearchState::default())
         .manage(usage::UsageState::default())
-        .manage(oauth::OauthState::default())
         .manage({
             let registry = workspace::WorkspaceRegistry::default();
             workspace::bootstrap_registry(&registry);
@@ -314,11 +313,6 @@ pub fn run() {
             usage::usage_refresh,
             usage::usage_connect,
             usage::usage_disconnect,
-            oauth::usage_login,
-            oauth::usage_login_start,
-            oauth::usage_login_finish,
-            oauth::usage_logout,
-            oauth::usage_connected,
             history::history_suggest,
             history::history_commands,
             history::history_record,

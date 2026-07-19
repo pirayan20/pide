@@ -9,13 +9,11 @@ import {
   PaintBoardIcon,
   Settings01Icon,
   SourceCodeIcon,
-  UserCircleIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { type JSX, useEffect, useState } from "react";
 import { AboutSection } from "./sections/AboutSection";
-import { AccountsSection } from "./sections/AccountsSection";
 import { EditorSection } from "./sections/EditorSection";
 import { GeneralSection } from "./sections/GeneralSection";
 import { ShortcutsSection } from "./sections/ShortcutsSection";
@@ -52,12 +50,6 @@ const TABS: {
     component: ShortcutsSection,
   },
   {
-    id: "accounts",
-    label: "Accounts",
-    icon: UserCircleIcon,
-    component: AccountsSection,
-  },
-  {
     id: "about",
     label: "About",
     icon: InformationCircleIcon,
@@ -70,7 +62,6 @@ const VALID_TABS: SettingsTab[] = [
   "editor",
   "themes",
   "shortcuts",
-  "accounts",
   "about",
 ];
 

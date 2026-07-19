@@ -43,10 +43,6 @@ notify = "8.2.0"
 which = "8.0.4"
 tauri-plugin-dialog = "2"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "json"] }
-keyring = "3"
-sha2 = "0.10"
-base64 = "0.22"
-getrandom = "0.2"
 
 [dev-dependencies]
 proptest = "1"
