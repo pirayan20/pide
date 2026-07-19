@@ -6,6 +6,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   DEFAULT_THEME_ID,
   loadPreferences,
@@ -131,7 +132,16 @@ export function ThemeProvider({ children, defaultMode = "system" }: ThemeProvide
     const root = document.documentElement;
     root.classList.remove("light", "dark");
     root.classList.add(resolvedMode);
-  }, [resolvedMode]);
+    // Align the native webview appearance with the app theme so that
+    // prefers-color-scheme inside the webview follows pide's theme, not the
+    // OS. Without this, an <img>-embedded SVG (or any prefers-color-scheme
+    // CSS) renders its light variant when the OS is light but pide is dark.
+    // In "system" mode pass null so the webview tracks the OS (which pide also
+    // follows), keeping system-detection correct.
+    void getCurrentWindow()
+      .setTheme(mode === "system" ? null : resolvedMode)
+      .catch(() => {});
+  }, [mode, resolvedMode]);
 
   const effectiveId = previewId ?? themeId;
   useEffect(() => {
