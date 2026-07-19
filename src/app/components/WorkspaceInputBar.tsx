@@ -21,7 +21,7 @@ import { useSystemInfo } from "./useSystemInfo";
 
 const ShellInput = lazy(() => import("@/modules/terminal/block/ShellInput"));
 
-export const FOCUS_BLOCK_INPUT_EVENT = "terax:focus-block-input";
+export const FOCUS_BLOCK_INPUT_EVENT = "pide:focus-block-input";
 
 type Props = {
   isBlockTab: boolean;

@@ -7,7 +7,7 @@ import type { Extension } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
-import type { TeraxLspClient } from "./client";
+import type { PideLspClient } from "./client";
 import { detectBinary } from "./detect";
 import { pickFallbackRoot } from "./fallbackRoot";
 import { getLspNavigator } from "./navigator";
@@ -29,7 +29,7 @@ type Managed = {
   key: string;
   preset: LspPreset;
   root: string;
-  client: TeraxLspClient;
+  client: PideLspClient;
   transport: TauriLspTransport;
   refs: Map<string, number>;
   idleTimer: ReturnType<typeof setTimeout> | null;
@@ -202,13 +202,13 @@ async function createSession(
   const store = useLspRuntimeStore.getState();
   store.upsertSession({ key, presetId: preset.id, root, status: "starting" });
 
-  const [{ TauriLspTransport }, { TeraxLspClient }] = await Promise.all([
+  const [{ TauriLspTransport }, { PideLspClient }] = await Promise.all([
     import("./transport"),
     import("./client"),
   ]);
 
-  if (TeraxLspClient.hostPid === null) {
-    TeraxLspClient.hostPid = await invoke<number>("lsp_host_pid").catch(
+  if (PideLspClient.hostPid === null) {
+    PideLspClient.hostPid = await invoke<number>("lsp_host_pid").catch(
       () => null,
     );
   }
@@ -237,7 +237,7 @@ async function createSession(
   }
 
   const rootUri = pathToFileUri(root);
-  const client = new TeraxLspClient({
+  const client = new PideLspClient({
     transport,
     rootUri,
     workspaceFolders: [{ uri: rootUri, name: basename(root) }],

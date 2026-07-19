@@ -14,5 +14,5 @@ fn main() {
         }
     }
 
-    terax_lib::run()
+    pide_lib::run()
 }

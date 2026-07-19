@@ -16,8 +16,8 @@ function terminalTab(over: Partial<TerminalTab> = {}): TerminalTab {
 
 describe("labelFor (terminal tabs)", () => {
   it("derives the label from the last cwd segment", () => {
-    expect(labelFor(terminalTab({ cwd: "/Users/me/projects/terax-ai" }))).toBe(
-      "terax-ai",
+    expect(labelFor(terminalTab({ cwd: "/Users/me/projects/pide-ai" }))).toBe(
+      "pide-ai",
     );
   });
 
@@ -27,7 +27,7 @@ describe("labelFor (terminal tabs)", () => {
 
   it("prefers a custom title over the cwd-derived name", () => {
     expect(
-      labelFor(terminalTab({ cwd: "/Users/me/projects/terax-ai", customTitle: "Server" })),
+      labelFor(terminalTab({ cwd: "/Users/me/projects/pide-ai", customTitle: "Server" })),
     ).toBe("Server");
   });
 
@@ -43,12 +43,12 @@ describe("labelFor (terminal tabs)", () => {
 });
 
 describe("labelFor (agent context)", () => {
-  const tab = () => terminalTab({ cwd: "/Users/me/projects/terax-ai" });
+  const tab = () => terminalTab({ cwd: "/Users/me/projects/pide-ai" });
 
   it("uses the agent baseline when there is no useful osc title", () => {
-    expect(labelFor(tab(), { name: "claude" })).toBe("Claude Code - terax-ai");
+    expect(labelFor(tab(), { name: "claude" })).toBe("Claude Code - pide-ai");
     expect(labelFor(tab(), { name: "pi", oscTitle: null })).toBe(
-      "Pi - terax-ai",
+      "Pi - pide-ai",
     );
   });
 
@@ -60,14 +60,14 @@ describe("labelFor (agent context)", () => {
 
   it("rejects trivial osc titles (cwd, folder, shells, paths)", () => {
     for (const t of [
-      "terax-ai",
-      "/Users/me/projects/terax-ai",
-      "~/projects/terax-ai",
+      "pide-ai",
+      "/Users/me/projects/pide-ai",
+      "~/projects/pide-ai",
       "zsh",
       "  ",
     ]) {
       expect(labelFor(tab(), { name: "claude", oscTitle: t })).toBe(
-        "Claude Code - terax-ai",
+        "Claude Code - pide-ai",
       );
     }
   });
@@ -82,7 +82,7 @@ describe("labelFor (agent context)", () => {
   });
 
   it("no agent context reverts to the folder label", () => {
-    expect(labelFor(tab())).toBe("terax-ai");
-    expect(labelFor(tab(), null)).toBe("terax-ai");
+    expect(labelFor(tab())).toBe("pide-ai");
+    expect(labelFor(tab(), null)).toBe("pide-ai");
   });
 });

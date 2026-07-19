@@ -1,5 +1,5 @@
 {
-  description = "Terax - open-source lightweight cross-platform terminal workspace";
+  description = "Pide - open-source lightweight cross-platform terminal workspace";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
 
@@ -9,16 +9,16 @@
     packages = forAllSystems (system: let
       pkgs = nixpkgs.legacyPackages.${system};
     in {
-      terax = pkgs.callPackage ./nix/package.nix { };
-      default = self.packages.${system}.terax;
+      pide = pkgs.callPackage ./nix/package.nix { };
+      default = self.packages.${system}.pide;
     });
 
-    nixosModules.terax = { pkgs, ... }: {
-      environment.systemPackages = [ self.packages.${pkgs.system}.terax ];
+    nixosModules.pide = { pkgs, ... }: {
+      environment.systemPackages = [ self.packages.${pkgs.system}.pide ];
     };
 
-    darwinModules.terax = { pkgs, ... }: {
-      environment.systemPackages = [ self.packages.${pkgs.system}.terax ];
+    darwinModules.pide = { pkgs, ... }: {
+      environment.systemPackages = [ self.packages.${pkgs.system}.pide ];
     };
   };
 }

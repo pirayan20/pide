@@ -2,11 +2,11 @@ mod common;
 
 use common::{git_available, GitRepoFixture};
 use tempfile::TempDir;
-use terax_lib::modules::fs::to_canon;
-use terax_lib::modules::git::errors::GitError;
-use terax_lib::modules::git::operations;
-use terax_lib::modules::git::types::DiscardEntry;
-use terax_lib::modules::workspace::{WorkspaceEnv, WorkspaceRegistry};
+use pide_lib::modules::fs::to_canon;
+use pide_lib::modules::git::errors::GitError;
+use pide_lib::modules::git::operations;
+use pide_lib::modules::git::types::DiscardEntry;
+use pide_lib::modules::workspace::{WorkspaceEnv, WorkspaceRegistry};
 
 fn skip_if_no_git() -> bool {
     if !git_available() {

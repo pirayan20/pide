@@ -145,7 +145,7 @@ export function CommandPalette({
     setQuery(initialMode === "content" ? "#" : "");
     setPage("root");
     const handle = window.setTimeout(() => {
-      document.getElementById("terax-command-palette-input")?.focus();
+      document.getElementById("pide-command-palette-input")?.focus();
     }, 0);
     return () => window.clearTimeout(handle);
   }, [open, initialMode]);
@@ -286,7 +286,7 @@ export function CommandPalette({
         onKeyDown={onKeyDown}
       >
         <CommandInput
-          id="terax-command-palette-input"
+          id="pide-command-palette-input"
           value={query}
           onValueChange={setQuery}
           placeholder={placeholder}

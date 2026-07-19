@@ -171,7 +171,7 @@
   --editor-font-size: 13px;
 }
 
-html[data-chrome="borderless"] .terax-bg-surface {
+html[data-chrome="borderless"] .pide-bg-surface {
   border-radius: 12px;
 }
 .zoom-content {
@@ -338,7 +338,7 @@ html *::-webkit-scrollbar {
   --ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-@keyframes terax-collapsible-down {
+@keyframes pide-collapsible-down {
   from {
     height: 0;
     opacity: 0;
@@ -349,7 +349,7 @@ html *::-webkit-scrollbar {
   }
 }
 
-@keyframes terax-collapsible-up {
+@keyframes pide-collapsible-up {
   from {
     height: var(--radix-collapsible-content-height);
     opacity: 1;
@@ -360,17 +360,17 @@ html *::-webkit-scrollbar {
   }
 }
 
-.terax-collapsible-content {
+.pide-collapsible-content {
   overflow: hidden;
 }
-.terax-collapsible-content[data-state="open"] {
-  animation: terax-collapsible-down var(--dur-base) var(--ease-soft);
+.pide-collapsible-content[data-state="open"] {
+  animation: pide-collapsible-down var(--dur-base) var(--ease-soft);
 }
-.terax-collapsible-content[data-state="closed"] {
-  animation: terax-collapsible-up var(--dur-base) var(--ease-soft);
+.pide-collapsible-content[data-state="closed"] {
+  animation: pide-collapsible-up var(--dur-base) var(--ease-soft);
 }
 
-@keyframes terax-panel-in {
+@keyframes pide-panel-in {
   from {
     opacity: 0;
     transform: translateX(-40px);
@@ -380,11 +380,11 @@ html *::-webkit-scrollbar {
     transform: translateX(0);
   }
 }
-.terax-panel-in {
-  animation: terax-panel-in var(--dur-slow) var(--ease-premium);
+.pide-panel-in {
+  animation: pide-panel-in var(--dur-slow) var(--ease-premium);
 }
 
-@keyframes terax-tab-in {
+@keyframes pide-tab-in {
   from {
     opacity: 0;
     transform: scale(0.86);
@@ -394,11 +394,11 @@ html *::-webkit-scrollbar {
     transform: scale(1);
   }
 }
-.terax-tab-in {
-  animation: terax-tab-in var(--dur-base) var(--ease-premium);
+.pide-tab-in {
+  animation: pide-tab-in var(--dur-base) var(--ease-premium);
 }
 
-@keyframes terax-pill-in {
+@keyframes pide-pill-in {
   from {
     opacity: 0;
     transform: translateY(2px) scale(0.96);
@@ -408,8 +408,8 @@ html *::-webkit-scrollbar {
     transform: translateY(0) scale(1);
   }
 }
-.terax-pill-in {
-  animation: terax-pill-in var(--dur-base) var(--ease-premium);
+.pide-pill-in {
+  animation: pide-pill-in var(--dur-base) var(--ease-premium);
 }
 
 @media (prefers-reduced-motion: reduce) {

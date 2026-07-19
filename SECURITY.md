@@ -1,10 +1,10 @@
 # Security
 
-Terax runs shells, reads and writes files, launches language servers, and interprets terminal output. If you find a security issue, report it privately before posting publicly.
+Pide runs shells, reads and writes files, launches language servers, and interprets terminal output. If you find a security issue, report it privately before posting publicly.
 
 ## Reporting
 
-Email **security@terax.app** with:
+Email **security@pide.app** with:
 
 - What the issue is and what it allows
 - Reproduction steps or a small proof of concept
@@ -41,4 +41,4 @@ Until `1.0.0`, only the latest minor release receives security fixes. See `packa
 
 ## Limitations
 
-Terax is a terminal and runs commands with the current user's permissions. Review commands and scripts before executing them, especially in untrusted repositories.
+Pide is a terminal and runs commands with the current user's permissions. Review commands and scripts before executing them, especially in untrusted repositories.

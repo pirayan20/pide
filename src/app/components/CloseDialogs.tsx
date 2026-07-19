@@ -195,7 +195,7 @@ export function CloseDialogs({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Quit Terax?</AlertDialogTitle>
+            <AlertDialogTitle>Quit Pide?</AlertDialogTitle>
             <AlertDialogDescription>
               {pendingAppClose ? appCloseMessage(pendingAppClose) : ""}
             </AlertDialogDescription>

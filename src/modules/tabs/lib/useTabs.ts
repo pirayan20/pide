@@ -321,9 +321,9 @@ export function useTabs() {
     if (!import.meta.env?.DEV || typeof window === "undefined") return;
     (
       window as unknown as {
-        __teraxNewBlockTab?: (cwd?: string) => number | null;
+        __pideNewBlockTab?: (cwd?: string) => number | null;
       }
-    ).__teraxNewBlockTab = newBlockTab;
+    ).__pideNewBlockTab = newBlockTab;
   }, [newBlockTab]);
 
   const newPrivateTab = useCallback((cwd?: string) => {

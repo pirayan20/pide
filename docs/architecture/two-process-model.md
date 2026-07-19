@@ -1,10 +1,10 @@
 # Two-process model and IPC command reference
 
-This guide elaborates on `TERAX.md`. If anything here conflicts with `TERAX.md`, `TERAX.md` wins.
+This guide elaborates on `PIDE.md`. If anything here conflicts with `PIDE.md`, `PIDE.md` wins.
 
 ## The split
 
-Terax is two processes: the Rust backend (`src-tauri/`) and the webview frontend (`src/`).
+Pide is two processes: the Rust backend (`src-tauri/`) and the webview frontend (`src/`).
 
 - **Rust owns all OS access**: PTY, file system, Git, shell spawn, workspace authorization, and language-server processes.
 - **The webview never touches the FS, processes, or shells directly**. Every host operation goes through an `invoke()` call to a command registered in `src-tauri/src/lib.rs`.
@@ -116,7 +116,7 @@ All git commands are gated through the workspace authorization registry.
 
 ## See also
 
-- [`TERAX.md`](../../TERAX.md) - the architecture source of truth
+- [`PIDE.md`](../../PIDE.md) - the architecture source of truth
 - [`docs/README.md`](../README.md) - index of contributor guides
 - [PTY shell integration](pty-shell-integration.md) - how sessions and shell integration work
 - [Security model](security-model.md) - the boundaries every command must respect

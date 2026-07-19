@@ -240,7 +240,7 @@ export function useSpacesBoot({
           ),
         );
       } catch (error) {
-        console.error("[terax] spaces boot failed:", error);
+        console.error("[pide] spaces boot failed:", error);
       } finally {
         markBooted();
       }

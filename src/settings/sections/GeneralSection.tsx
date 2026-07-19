@@ -431,7 +431,7 @@ export function GeneralSection() {
         <Label>Agents</Label>
         <SettingRow
           title="Coding agent notifications"
-          description="Alert when an external coding agent running in a terminal needs your input or finishes. Desktop notification when Terax is unfocused, in-app otherwise."
+          description="Alert when an external coding agent running in a terminal needs your input or finishes. Desktop notification when Pide is unfocused, in-app otherwise."
         >
           <Switch
             checked={agentNotifications}
@@ -445,7 +445,7 @@ export function GeneralSection() {
         <div className="flex flex-col gap-2">
           <SettingRow
             title="Launch at login"
-            description="Open Terax automatically when you sign in."
+            description="Open Pide automatically when you sign in."
           >
             <Switch
               checked={autostart}

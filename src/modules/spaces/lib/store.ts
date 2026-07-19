@@ -39,7 +39,7 @@ export type LoadedHierarchy = {
   states: Map<string, ProjectState>;
 };
 
-const STORE_PATH = "terax-spaces.json";
+const STORE_PATH = "pide-spaces.json";
 const KEY_SCHEMA_VERSION = "schemaVersion";
 const KEY_SPACES = "spaces";
 const KEY_PROJECTS = "projects";

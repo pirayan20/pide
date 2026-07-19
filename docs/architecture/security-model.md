@@ -1,8 +1,8 @@
 # Security model
 
-This guide elaborates on `TERAX.md`. If anything here conflicts with `TERAX.md`, `TERAX.md` wins.
+This guide elaborates on `PIDE.md`. If anything here conflicts with `PIDE.md`, `PIDE.md` wins.
 
-Terax launches shells, reads and writes workspace files, runs formatters, controls language servers, and interprets terminal escape sequences. Each boundary validates input before acting on it.
+Pide launches shells, reads and writes workspace files, runs formatters, controls language servers, and interprets terminal escape sequences. Each boundary validates input before acting on it.
 
 ## Boundaries
 
@@ -48,7 +48,7 @@ The terminal parses these OSC sequences from the PTY stream:
 - **OSC 133 A/B/C/D** marks prompt and command boundaries.
 - **OSC 777** reports supported coding-agent CLI state transitions.
 
-The detector in `src-tauri/src/modules/pty/agent_detect.rs` is armed by command-boundary information or an installed self-arming hook. It emits `terax:agent-signal` events from recognized OSC markers only. Repainting TUI output cannot produce state transitions by matching plain text.
+The detector in `src-tauri/src/modules/pty/agent_detect.rs` is armed by command-boundary information or an installed self-arming hook. It emits `pide:agent-signal` events from recognized OSC markers only. Repainting TUI output cannot produce state transitions by matching plain text.
 
 ## Tauri capabilities
 
@@ -71,7 +71,7 @@ Do not grant broad plugin permissions speculatively.
 
 ## See also
 
-- [`TERAX.md`](../../TERAX.md)
+- [`PIDE.md`](../../PIDE.md)
 - [`docs/README.md`](../README.md)
 - [Two-process model](two-process-model.md)
 - [PTY shell integration](pty-shell-integration.md)
