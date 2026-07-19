@@ -34,6 +34,10 @@ pub fn wait_on(listener: &TcpListener, expected_state: &str, timeout: Duration) 
     while Instant::now() < deadline {
         match listener.accept() {
             Ok((mut stream, _)) => {
+                // On macOS/BSD the accepted socket inherits the listener's
+                // non-blocking flag; make the read block so we don't drop a
+                // legit callback whose bytes haven't arrived in this instant.
+                let _ = stream.set_nonblocking(false);
                 let mut buf = [0u8; 2048];
                 let n = match stream.read(&mut buf) {
                     Ok(n) => n,
