@@ -86,7 +86,7 @@ import {
 } from "@/modules/terminal";
 import { ThemeProvider, useThemeFileEditing } from "@/modules/theme";
 import { UpdaterDialog } from "@/modules/updater";
-import { useUsageStore, V1_PROVIDERS } from "@/modules/usage";
+import { useUsageStore } from "@/modules/usage";
 import { useWorkspaceEnvStore, type WorkspaceEnv } from "@/modules/workspace";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -263,7 +263,9 @@ export default function App() {
 
   useEffect(() => {
     const { connect, startAutoRefresh } = useUsageStore.getState();
-    for (const p of V1_PROVIDERS) void connect(p);
+    // Reuse the CLIs' logins: connect fetches each provider; not-signed-in
+    // ones resolve to signed_out and render nothing.
+    for (const p of ["claude", "codex"]) void connect(p);
     return startAutoRefresh();
   }, []);
 
