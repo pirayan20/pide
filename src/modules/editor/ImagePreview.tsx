@@ -23,6 +23,8 @@ const CHECKERBOARD_STYLE = {
   backgroundSize: "20px 20px",
 } as const;
 
+const ZOOM_STEP = 1.25;
+
 // Wheel-to-zoom, drag-to-pan, double-click/reset to fit. CSS transform only —
 // object-contain stays the resting (fit) state.
 export function ImagePreview({ src, alt, background = "checker" }: Props) {
@@ -37,6 +39,10 @@ export function ImagePreview({ src, alt, background = "checker" }: Props) {
   } | null>(null);
 
   const reset = useCallback(() => setTransform(FIT_TRANSFORM), []);
+  // Zoom toward the container center (0,0 in center-relative coords).
+  const zoomBy = useCallback((factor: number) => {
+    setTransform((t) => zoomTowardPoint(t, t.scale * factor, 0, 0));
+  }, []);
 
   // Native, non-passive listener: React's onWheel is passive, so
   // preventDefault() there wouldn't actually stop the pane from scrolling
@@ -121,15 +127,42 @@ export function ImagePreview({ src, alt, background = "checker" }: Props) {
         }}
         alt={alt}
       />
-      {!isFit && (
+      {/* Always-visible zoom controls (discoverable, esp. for diagrams); the
+          % button resets to fit. stopPropagation so clicks don't start a pan. */}
+      <div
+        className="absolute bottom-2 left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-md border border-border/60 bg-card/85 p-0.5 text-xs shadow-sm backdrop-blur"
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          onClick={() => zoomBy(1 / ZOOM_STEP)}
+          title="Zoom out"
+          className="rounded px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          −
+        </button>
         <button
           type="button"
           onClick={reset}
-          className="absolute bottom-2 right-2 rounded-md border border-border bg-muted/60 px-2 py-1 text-xs text-foreground hover:bg-accent"
+          title="Reset to fit"
+          className={cn(
+            "min-w-11 rounded px-1 py-0.5 tabular-nums",
+            isFit
+              ? "text-muted-foreground"
+              : "text-foreground hover:bg-accent",
+          )}
         >
-          Reset
+          {Math.round(transform.scale * 100)}%
         </button>
-      )}
+        <button
+          type="button"
+          onClick={() => zoomBy(ZOOM_STEP)}
+          title="Zoom in"
+          className="rounded px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          +
+        </button>
+      </div>
     </div>
   );
 }
