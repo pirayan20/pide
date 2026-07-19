@@ -1,5 +1,6 @@
 use super::{status_from_windows, ProviderUsage, QuotaWindow, UsageStatus};
-use serde_json::{json, Value};
+use crate::modules::oauth;
+use serde_json::Value;
 use std::time::Duration;
 
 // Codex has no unauthenticated usage source. Its stored access token expires,
@@ -9,30 +10,7 @@ use std::time::Duration;
 //   -> { email, plan_type, rate_limit: { primary_window, secondary_window },
 //        additional_rate_limits: [ { limit_name, rate_limit: { primary_window } } ] }
 // where *_window = { used_percent, limit_window_seconds, reset_at (epoch secs) }.
-const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
-const TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const USAGE_URL: &str = "https://chatgpt.com/backend-api/codex/usage";
-
-struct CodexAuth {
-    access_token: Option<String>,
-    refresh_token: String,
-    account_id: Option<String>,
-}
-
-fn parse_codex_auth(json_str: &str) -> Option<CodexAuth> {
-    let v: Value = serde_json::from_str(json_str).ok()?;
-    let tokens = v.get("tokens")?;
-    Some(CodexAuth {
-        access_token: tokens.get("access_token").and_then(Value::as_str).map(str::to_string),
-        refresh_token: tokens.get("refresh_token")?.as_str()?.to_string(),
-        account_id: tokens.get("account_id").and_then(Value::as_str).map(str::to_string),
-    })
-}
-
-fn read_auth() -> Option<CodexAuth> {
-    let path = dirs::home_dir()?.join(".codex/auth.json");
-    parse_codex_auth(&std::fs::read_to_string(path).ok()?)
-}
 
 fn label_for(window_seconds: i64) -> String {
     match window_seconds {
@@ -83,27 +61,15 @@ fn parse_codex_usage(body: &Value) -> (Vec<QuotaWindow>, Option<String>, Option<
     (windows, account, plan)
 }
 
-// ponytail: refresh on every fetch (one extra request per poll). Cache by the
-// token's expires_in if the poll cadence ever makes this matter.
-fn refresh_access_token(c: &reqwest::blocking::Client, refresh_token: &str) -> Option<String> {
-    let resp = c
-        .post(TOKEN_URL)
-        .json(&json!({
-            "client_id": CLIENT_ID,
-            "grant_type": "refresh_token",
-            "refresh_token": refresh_token,
-            "scope": "openid profile email",
-        }))
-        .send()
-        .ok()?;
-    if !resp.status().is_success() {
-        return None;
+// Get a usable access token: our stored one if fresh, else refresh (and persist).
+fn access_token() -> Option<String> {
+    let mut t = oauth::store::load("codex")?;
+    if oauth::store::is_expired(&t, now_ms()) {
+        let cfg = oauth::provider_config("codex")?;
+        t = oauth::token::refresh(&cfg, &t.refresh)?;
+        oauth::store::save("codex", &t);
     }
-    resp.json::<Value>()
-        .ok()?
-        .get("access_token")
-        .and_then(Value::as_str)
-        .map(str::to_string)
+    Some(t.access)
 }
 
 fn now_ms() -> i64 {
@@ -128,12 +94,16 @@ enum Outcome {
     Failed,
 }
 
-fn fetch_usage(c: &reqwest::blocking::Client, access: &str, account_id: &Option<String>) -> Outcome {
-    let mut req = c
-        .get(USAGE_URL)
-        .bearer_auth(access)
-        .header("User-Agent", "codex_cli_rs")
-        .header("originator", "codex_cli_rs");
+fn fetch_usage(access: &str, account_id: &Option<String>) -> Outcome {
+    let Some(c) = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .user_agent("codex_cli_rs")
+        .build()
+        .ok()
+    else {
+        return Outcome::Failed;
+    };
+    let mut req = c.get(USAGE_URL).bearer_auth(access).header("originator", "codex_cli_rs");
     if let Some(id) = account_id {
         req = req.header("chatgpt-account-id", id);
     }
@@ -155,30 +125,15 @@ fn fetch_usage(c: &reqwest::blocking::Client, access: &str, account_id: &Option<
 }
 
 pub fn fetch_codex() -> ProviderUsage {
-    let Some(auth) = read_auth() else {
-        return usage(UsageStatus::SignedOut, vec![], None, None);
+    let Some(access) = access_token() else {
+        // no stored tokens at all -> signed out; refresh failed -> auth expired
+        return match oauth::store::load("codex") {
+            Some(_) => usage(UsageStatus::AuthExpired, vec![], None, None),
+            None => usage(UsageStatus::SignedOut, vec![], None, None),
+        };
     };
-    let Some(client) =
-        reqwest::blocking::Client::builder().timeout(Duration::from_secs(10)).build().ok()
-    else {
-        return usage(UsageStatus::Unavailable, vec![], None, None);
-    };
-    // Prefer the stored access token — Codex keeps it fresh while in use, so no
-    // refresh (and no refresh-token rotation) is needed in the common case.
-    // Refreshing every poll would rotate auth.json's token out from under us and
-    // fail on the next poll ("Sign in again" while actively using Codex).
-    if let Some(access) = &auth.access_token {
-        match fetch_usage(&client, access, &auth.account_id) {
-            Outcome::Ok(pu) => return pu,
-            Outcome::Failed => return usage(UsageStatus::Unavailable, vec![], None, None),
-            Outcome::Unauthorized => {} // expired — refresh once below
-        }
-    }
-    // Stored token missing/expired: refresh once (read-only), then retry.
-    let Some(access) = refresh_access_token(&client, &auth.refresh_token) else {
-        return usage(UsageStatus::AuthExpired, vec![], None, None);
-    };
-    match fetch_usage(&client, &access, &auth.account_id) {
+    let account_id = None::<String>; // not needed; email comes from the usage body
+    match fetch_usage(&access, &account_id) {
         Outcome::Ok(pu) => pu,
         Outcome::Unauthorized => usage(UsageStatus::AuthExpired, vec![], None, None),
         Outcome::Failed => usage(UsageStatus::Unavailable, vec![], None, None),
@@ -188,29 +143,7 @@ pub fn fetch_codex() -> ProviderUsage {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parse_auth_extracts_tokens_and_account() {
-        let a = parse_codex_auth(
-            r#"{"tokens":{"access_token":"at-1","refresh_token":"rt-1","account_id":"acc-1"}}"#,
-        )
-        .unwrap();
-        assert_eq!(a.access_token.as_deref(), Some("at-1"));
-        assert_eq!(a.refresh_token, "rt-1");
-        assert_eq!(a.account_id.as_deref(), Some("acc-1"));
-    }
-
-    #[test]
-    fn parse_auth_access_token_optional() {
-        let a = parse_codex_auth(r#"{"tokens":{"refresh_token":"rt-1"}}"#).unwrap();
-        assert!(a.access_token.is_none());
-        assert_eq!(a.refresh_token, "rt-1");
-    }
-
-    #[test]
-    fn parse_auth_missing_refresh_is_none() {
-        assert!(parse_codex_auth(r#"{"tokens":{"access_token":"x"}}"#).is_none());
-    }
+    use serde_json::json;
 
     #[test]
     fn label_for_common_windows() {
