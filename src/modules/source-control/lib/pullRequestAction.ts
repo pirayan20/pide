@@ -5,16 +5,31 @@ export type PullRequestUpstream = {
   branch: string;
 };
 
-export function parsePullRequestUpstream(
+export function pullRequestUpstreamCandidates(
   upstream: string | null,
-): PullRequestUpstream | null {
-  if (!upstream) return null;
-  const slash = upstream.indexOf("/");
-  if (slash <= 0 || slash === upstream.length - 1) return null;
-  const remote = upstream.slice(0, slash);
-  const branch = upstream.slice(slash + 1);
-  if (/\s/.test(remote) || /\s/.test(branch)) return null;
-  return { remote, branch };
+): PullRequestUpstream[] {
+  if (
+    !upstream ||
+    /\s/.test(upstream) ||
+    upstream.startsWith("/") ||
+    upstream.endsWith("/") ||
+    upstream.includes("//")
+  ) {
+    return [];
+  }
+
+  const candidates: PullRequestUpstream[] = [];
+  for (
+    let slash = upstream.lastIndexOf("/");
+    slash > 0;
+    slash = upstream.lastIndexOf("/", slash - 1)
+  ) {
+    candidates.push({
+      remote: upstream.slice(0, slash),
+      branch: upstream.slice(slash + 1),
+    });
+  }
+  return candidates;
 }
 
 export function canOfferCreatePullRequest(

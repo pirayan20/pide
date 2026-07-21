@@ -582,7 +582,7 @@ pub fn log(
             if !sha_is_safe(sha) {
                 return Err(GitError::command("git log", "invalid cursor sha"));
             }
-            Some(format!("{sha}^"))
+            Some(format!("{sha}^@"))
         }
         _ => None,
     };
@@ -907,7 +907,7 @@ pub fn remote_url(
 }
 
 fn is_remote_name_char(c: char) -> bool {
-    c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.'
+    c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/')
 }
 
 fn parse_diff_tree_name_status(bytes: &[u8]) -> Vec<GitCommitFileChange> {
@@ -1622,10 +1622,10 @@ mod tests {
 
     #[test]
     fn is_remote_name_char_allows_word_and_punct() {
-        for c in "abcXYZ012-_.".chars() {
+        for c in "abcXYZ012-_./".chars() {
             assert!(is_remote_name_char(c));
         }
-        for c in " /:\\?\"'".chars() {
+        for c in " :\\?\"'".chars() {
             assert!(!is_remote_name_char(c));
         }
     }

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { GitStatusSnapshot } from "@/lib/native";
 import {
   canOfferCreatePullRequest,
-  parsePullRequestUpstream,
+  pullRequestUpstreamCandidates,
 } from "@/modules/source-control/lib/pullRequestAction";
 
 const eligibleStatus: GitStatusSnapshot = {
@@ -16,12 +16,19 @@ const eligibleStatus: GitStatusSnapshot = {
   changedFiles: [],
 };
 
-describe("parsePullRequestUpstream", () => {
-  it("splits remote and branch at the first slash", () => {
-    expect(parsePullRequestUpstream("upstream/feat/create-pr")).toEqual({
-      remote: "upstream",
-      branch: "feat/create-pr",
-    });
+describe("pullRequestUpstreamCandidates", () => {
+  it("tries longest remote prefixes before shorter ones", () => {
+    expect(pullRequestUpstreamCandidates("corp/github/main")).toEqual([
+      { remote: "corp/github", branch: "main" },
+      { remote: "corp", branch: "github/main" },
+    ]);
+  });
+
+  it("includes ordinary remote and branch names after longer prefixes", () => {
+    expect(pullRequestUpstreamCandidates("upstream/feat/create-pr")).toEqual([
+      { remote: "upstream/feat", branch: "create-pr" },
+      { remote: "upstream", branch: "feat/create-pr" },
+    ]);
   });
 
   it.each([
@@ -30,9 +37,10 @@ describe("parsePullRequestUpstream", () => {
     "origin",
     "/main",
     "origin/",
+    "origin//main",
     "origin/feat branch",
   ])("rejects invalid upstream %j", (upstream) => {
-    expect(parsePullRequestUpstream(upstream)).toBeNull();
+    expect(pullRequestUpstreamCandidates(upstream)).toEqual([]);
   });
 });
 

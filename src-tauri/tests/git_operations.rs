@@ -379,6 +379,74 @@ fn log_paginates_with_before_sha_cursor() {
 }
 
 #[test]
+fn log_pagination_includes_all_merge_parent_histories() {
+    if skip_if_no_git() {
+        return;
+    }
+    let fx = GitRepoFixture::new();
+    fx.write_file("seed.txt", "seed\n");
+    fx.run_git(&["add", "seed.txt"]);
+    fx.run_git(&["commit", "-q", "-m", "seed"]);
+
+    fx.write_file("main.txt", "main\n");
+    fx.run_git(&["add", "main.txt"]);
+    fx.run_git(&["commit", "-q", "-m", "main parent"]);
+
+    fx.run_git(&["checkout", "-q", "-b", "side", "HEAD~1"]);
+    fx.write_file("side.txt", "side\n");
+    fx.run_git(&["add", "side.txt"]);
+    fx.run_git(&["commit", "-q", "-m", "side commit"]);
+
+    fx.run_git(&["checkout", "-q", "main"]);
+    fx.run_git(&["merge", "--no-ff", "side", "-m", "merge side"]);
+
+    let first_page =
+        operations::log(&fx.registry, &fx.repo_str(), 1, None, &fx.workspace).unwrap();
+    assert_eq!(first_page.len(), 1);
+    assert_eq!(first_page[0].subject, "merge side");
+    let cursor = first_page[0].sha.clone();
+
+    let next_page = operations::log(
+        &fx.registry,
+        &fx.repo_str(),
+        10,
+        Some(&cursor),
+        &fx.workspace,
+    )
+    .unwrap();
+    let subjects: Vec<_> = next_page
+        .iter()
+        .map(|entry| entry.subject.as_str())
+        .collect();
+    assert!(subjects.contains(&"main parent"));
+    assert!(subjects.contains(&"side commit"));
+    assert!(next_page.iter().all(|entry| entry.sha != cursor));
+}
+
+#[test]
+fn remote_url_resolves_slash_remote_name() {
+    if skip_if_no_git() {
+        return;
+    }
+    let fx = GitRepoFixture::new();
+    fx.run_git(&[
+        "remote",
+        "add",
+        "corp/github",
+        "https://github.com/acme/pide.git",
+    ]);
+
+    let url = operations::remote_url(
+        &fx.registry,
+        &fx.repo_str(),
+        "corp/github",
+        &fx.workspace,
+    )
+    .unwrap();
+    assert_eq!(url.as_deref(), Some("https://github.com/acme/pide.git"));
+}
+
+#[test]
 fn log_with_invalid_cursor_sha_errors() {
     if skip_if_no_git() {
         return;

@@ -225,7 +225,7 @@ export function GitHistoryInspector({
               <div className="px-3 py-2 text-[10.5px] text-muted-foreground">
                 Loading more…
               </div>
-            ) : paginationError ? (
+            ) : paginationError && onLoadMore ? (
               <div className="flex items-center justify-between gap-2 px-3 py-2 text-[10.5px] text-destructive">
                 <span className="min-w-0 truncate">{paginationError}</span>
                 <Button

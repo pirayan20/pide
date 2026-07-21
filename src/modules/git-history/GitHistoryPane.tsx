@@ -481,7 +481,9 @@ export function GitHistoryPane({
             onOpenFileTab={handleOpenFileTab}
             isLoadingMore={loadStatus === "more"}
             paginationError={
-              loadStatus === "error" && commits.length > 0 ? error : null
+              !activeSearch && loadStatus === "error" && commits.length > 0
+                ? error
+                : null
             }
             endReached={endReached}
             onLoadMore={activeSearch ? undefined : () => void loadMore()}
