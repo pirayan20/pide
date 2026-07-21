@@ -15,6 +15,7 @@ import {
 } from "./lib/remoteWebUrl";
 
 const COMMIT_ROW_HEIGHT = 48;
+const NEAR_BOTTOM_PX = 240;
 
 export type FilesState =
   | { state: "loading" }
@@ -31,6 +32,9 @@ type Props = {
   onSelectCommit: (sha: string) => void;
   onRetryFiles: () => void;
   onOpenFileTab: (commit: GitLogEntry, file: GitCommitFileChange) => void;
+  isLoadingMore: boolean;
+  endReached: boolean;
+  onLoadMore?: () => void;
 };
 
 function absoluteTime(secs: number): string {
@@ -86,6 +90,9 @@ export function GitHistoryInspector({
   onSelectCommit,
   onRetryFiles,
   onOpenFileTab,
+  isLoadingMore,
+  endReached,
+  onLoadMore,
 }: Props) {
   const commit = commits.find((entry) => entry.sha === selectedSha) ?? null;
   const files = filesState.state === "loaded" ? filesState.files : [];
@@ -111,6 +118,14 @@ export function GitHistoryInspector({
     commit && remoteWeb ? commitWebUrl(remoteWeb, commit.sha) : null;
   const selectedFile = files.find((file) => file.path === selectedPath) ?? null;
 
+  const handleListScroll = () => {
+    const element = listRef.current;
+    if (!element || !onLoadMore || isLoadingMore || endReached) return;
+    const remaining =
+      element.scrollHeight - element.scrollTop - element.clientHeight;
+    if (remaining < NEAR_BOTTOM_PX) onLoadMore();
+  };
+
   if (!commit) return null;
 
   return (
@@ -125,13 +140,14 @@ export function GitHistoryInspector({
           Back to Commit Graph
         </Button>
       </header>
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(220px,28%)_minmax(0,1fr)]">
-        <aside className="min-h-0 overflow-hidden border-b border-border/50 lg:border-b-0 lg:border-r">
+      <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(220px,28%)_minmax(0,1fr)]">
+        <aside className="min-h-0 min-w-0 overflow-hidden border-b border-border/50 lg:border-b-0 lg:border-r">
           <div className="h-7 border-b border-border/40 px-3 pt-2 text-[9.5px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
             Commits
           </div>
           <div
             ref={listRef}
+            onScroll={handleListScroll}
             className="min-h-0 h-[30vh] overflow-y-auto lg:h-[calc(100%-1.75rem)]"
           >
             <div
@@ -170,10 +186,19 @@ export function GitHistoryInspector({
                 );
               })}
             </div>
+            {isLoadingMore ? (
+              <div className="px-3 py-2 text-[10.5px] text-muted-foreground">
+                Loading more…
+              </div>
+            ) : endReached ? (
+              <div className="px-3 py-2 text-[10.5px] text-muted-foreground/65">
+                End of history
+              </div>
+            ) : null}
           </div>
         </aside>
-        <main className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)]">
-          <section className="border-b border-border/50 px-4 py-3">
+        <main className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
+          <section className="min-w-0 overflow-hidden border-b border-border/50 px-4 py-3">
             <div className="flex min-w-0 items-start gap-2">
               <span className="mt-0.5 shrink-0 rounded bg-muted/65 px-1.5 py-0.5 font-mono text-[10.5px] tabular-nums text-muted-foreground">
                 {commit.shortSha}
@@ -192,6 +217,7 @@ export function GitHistoryInspector({
               {commit.authorEmail ? <span>{commit.authorEmail}</span> : null}
               <span>{absoluteTime(commit.timestampSecs)}</span>
               <span className="font-mono">{commit.sha}</span>
+              <span>{commit.filesChanged} files</span>
               <span className="font-mono text-emerald-600 dark:text-emerald-400">
                 +{commit.insertions}
               </span>
@@ -228,8 +254,8 @@ export function GitHistoryInspector({
               ) : null}
             </div>
           </section>
-          <div className="grid min-h-0 grid-cols-1 xl:grid-cols-[240px_minmax(0,1fr)]">
-            <section className="flex min-h-0 flex-col border-b border-border/50 xl:border-b-0 xl:border-r">
+          <div className="grid min-h-0 min-w-0 grid-cols-1 overflow-hidden xl:grid-cols-[240px_minmax(0,1fr)]">
+            <section className="flex min-h-0 min-w-0 flex-col overflow-hidden border-b border-border/50 xl:border-b-0 xl:border-r">
               <div className="flex h-8 shrink-0 items-center justify-between px-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                 <span>Changed files</span>
                 {filesState.state === "loaded" ? (
@@ -306,7 +332,7 @@ export function GitHistoryInspector({
                 </div>
               ) : null}
             </section>
-            <section className="min-h-0 p-2">
+            <section className="min-h-0 min-w-0 overflow-hidden p-2">
               {selectedFile ? (
                 <div className="flex h-full min-h-0 flex-col gap-2">
                   <div className="flex shrink-0 items-center justify-end">

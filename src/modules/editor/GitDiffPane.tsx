@@ -284,8 +284,8 @@ export function GitDiffPane({ source, chipLabel, active }: GitDiffPaneProps) {
   );
 
   return (
-    <div className="flex h-full min-h-0 flex-col rounded-md border border-border/60 bg-background">
-      <div className="flex h-10 shrink-0 items-center justify-between gap-3 border-b border-border/60 px-3">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-md border border-border/60 bg-background">
+      <div className="flex h-10 min-w-0 shrink-0 items-center justify-between gap-3 overflow-hidden border-b border-border/60 px-3">
         <div className="flex min-w-0 items-center gap-2">
           <Badge
             variant="outline"
@@ -309,7 +309,7 @@ export function GitDiffPane({ source, chipLabel, active }: GitDiffPaneProps) {
             {path}
           </span>
         </div>
-        <div className="flex shrink-0 items-center gap-3">
+        <div className="flex min-w-0 shrink-0 items-center gap-3">
           {!useFallback && state.kind === "loaded" && (
             <button
               type="button"
@@ -326,8 +326,10 @@ export function GitDiffPane({ source, chipLabel, active }: GitDiffPaneProps) {
               {viewMode === "unified" ? "Unified" : "Split"}
             </button>
           )}
-          <div className="text-[10.5px] tabular-nums text-muted-foreground">
-            <span className="truncate max-w-80 font-mono">{repoRoot}</span>
+          <div className="min-w-0 text-[10.5px] tabular-nums text-muted-foreground">
+            <span className="block max-w-80 truncate font-mono">
+              {repoRoot}
+            </span>
             {useFallback ? (
               <div className="flex gap-3">
                 <span className="text-emerald-600 dark:text-emerald-400">

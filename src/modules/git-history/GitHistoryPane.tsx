@@ -439,7 +439,7 @@ export function GitHistoryPane({
         {view.kind === "inspect" ? (
           <GitHistoryInspector
             repoRoot={repoRoot}
-            commits={commits}
+            commits={filtered}
             selectedSha={view.sha}
             filesState={selectedFilesState}
             remoteWeb={remoteWeb}
@@ -450,6 +450,9 @@ export function GitHistoryPane({
             }}
             onRetryFiles={() => void fetchFiles(view.sha)}
             onOpenFileTab={handleOpenFileTab}
+            isLoadingMore={loadStatus === "more"}
+            endReached={endReached}
+            onLoadMore={activeSearch ? undefined : () => void loadMore()}
           />
         ) : loadStatus === "initial" && commits.length === 0 ? (
           <CenterPlaceholder>
