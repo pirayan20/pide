@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { GitStatusSnapshot } from "@/lib/native";
-import { canOfferCreatePullRequest } from "@/modules/source-control/lib/pullRequestAction";
+import {
+  canOfferCreatePullRequest,
+  parsePullRequestUpstream,
+} from "@/modules/source-control/lib/pullRequestAction";
 
 const eligibleStatus: GitStatusSnapshot = {
   repoRoot: "/repo",
@@ -12,6 +15,26 @@ const eligibleStatus: GitStatusSnapshot = {
   truncated: false,
   changedFiles: [],
 };
+
+describe("parsePullRequestUpstream", () => {
+  it("splits remote and branch at the first slash", () => {
+    expect(parsePullRequestUpstream("upstream/feat/create-pr")).toEqual({
+      remote: "upstream",
+      branch: "feat/create-pr",
+    });
+  });
+
+  it.each([
+    null,
+    "",
+    "origin",
+    "/main",
+    "origin/",
+    "origin/feat branch",
+  ])("rejects invalid upstream %j", (upstream) => {
+    expect(parsePullRequestUpstream(upstream)).toBeNull();
+  });
+});
 
 describe("canOfferCreatePullRequest", () => {
   it("accepts a clean attached synchronized branch", () => {

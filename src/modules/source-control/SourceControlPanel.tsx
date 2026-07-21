@@ -1320,6 +1320,7 @@ export const SourceControlPanel = memo(function SourceControlPanel({
   const pullRequestUrl = usePullRequestUrl(
     scm.repo?.repoRoot ?? null,
     scm.status?.branch ?? null,
+    scm.status?.upstream ?? null,
     createPullRequestEligible,
   );
 
@@ -1564,15 +1565,6 @@ export const SourceControlPanel = memo(function SourceControlPanel({
             ) : null}
           </div>
           <div className="flex shrink-0 items-center gap-1">
-            {pullRequestUrl ? (
-              <Button
-                size="xs"
-                onClick={handleCreatePullRequest}
-                className="h-6 cursor-pointer px-2 text-[11px] font-semibold"
-              >
-                Create PR
-              </Button>
-            ) : null}
             <RemoteActionControl
               status={scm.status}
               isDiverged={isDiverged}
@@ -1605,6 +1597,18 @@ export const SourceControlPanel = memo(function SourceControlPanel({
             </IconActionButton>
           </div>
         </header>
+
+        {pullRequestUrl ? (
+          <div className="shrink-0 border-b border-border/40 px-3 py-2">
+            <Button
+              size="sm"
+              onClick={handleCreatePullRequest}
+              className="w-full cursor-pointer text-[11px] font-semibold"
+            >
+              Create PR
+            </Button>
+          </div>
+        ) : null}
 
         {onOpenGitGraph ? (
           <button
