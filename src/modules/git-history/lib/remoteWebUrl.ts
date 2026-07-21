@@ -59,6 +59,14 @@ export function parseRemoteWebUrl(raw: string | null | undefined): RemoteWebInfo
   };
 }
 
+export function githubCompareUrl(
+  info: RemoteWebInfo | null,
+  branch: string,
+): string | null {
+  if (info?.host !== "github" || !branch) return null;
+  return `${info.baseUrl}/compare/${encodeURIComponent(branch)}?expand=1`;
+}
+
 export function commitWebUrl(info: RemoteWebInfo, sha: string): string {
   switch (info.host) {
     case "github":
