@@ -41,6 +41,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Spinner } from "@/components/ui/spinner";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -100,6 +101,8 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
+import { canOfferCreatePullRequest } from "@/modules/source-control/lib/pullRequestAction";
+import { usePullRequestUrl } from "@/modules/source-control/lib/usePullRequestUrl";
 import type {
   SourceControlRemoteAction,
   SourceControlSummary,
@@ -1310,6 +1313,15 @@ export const SourceControlPanel = memo(function SourceControlPanel({
   const pushStatusLabel = upstreamBadgeLabel(scm.status?.upstream);
   const isDiverged =
     !!scm.status && scm.status.ahead > 0 && scm.status.behind > 0;
+  const createPullRequestEligible = canOfferCreatePullRequest(
+    sourceControl.hasRepo,
+    scm.status,
+  );
+  const pullRequestUrl = usePullRequestUrl(
+    scm.repo?.repoRoot ?? null,
+    scm.status?.branch ?? null,
+    createPullRequestEligible,
+  );
 
   const footerFeedback = useMemo(() => {
     if (scm.actionError)
@@ -1345,6 +1357,13 @@ export const SourceControlPanel = memo(function SourceControlPanel({
       }, 450);
     });
   }, [scm]);
+
+  const handleCreatePullRequest = useCallback(() => {
+    if (!pullRequestUrl) return;
+    void openUrl(pullRequestUrl).catch((error) => {
+      toast.error(`Could not open GitHub: ${String(error)}`);
+    });
+  }, [pullRequestUrl]);
 
   const rows = useMemo<RowDescriptor[]>(() => {
     const result: RowDescriptor[] = [];
@@ -1545,6 +1564,15 @@ export const SourceControlPanel = memo(function SourceControlPanel({
             ) : null}
           </div>
           <div className="flex shrink-0 items-center gap-1">
+            {pullRequestUrl ? (
+              <Button
+                size="xs"
+                onClick={handleCreatePullRequest}
+                className="h-6 cursor-pointer px-2 text-[11px] font-semibold"
+              >
+                Create PR
+              </Button>
+            ) : null}
             <RemoteActionControl
               status={scm.status}
               isDiverged={isDiverged}
@@ -1590,7 +1618,7 @@ export const SourceControlPanel = memo(function SourceControlPanel({
               strokeWidth={1.85}
               className="shrink-0"
             />
-            <span className="flex-1 text-[12px] font-medium">Commit Graph</span>
+            <span className="flex-1 text-[12px] font-medium">History</span>
             <HugeiconsIcon
               icon={ArrowRight01Icon}
               size={12}
