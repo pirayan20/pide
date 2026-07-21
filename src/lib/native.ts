@@ -59,6 +59,12 @@ export type GitPushResult = {
   pushed: boolean;
 };
 
+export type GitUpstreamInfo = {
+  remote: string;
+  branch: string;
+  url: string;
+};
+
 export type GitLogEntry = {
   sha: string;
   shortSha: string;
@@ -265,6 +271,12 @@ export const native = {
     invoke<string | null>("git_remote_url", {
       repoRoot,
       name: name ?? null,
+      workspace: workspace(),
+    }),
+  gitUpstreamInfo: (repoRoot: string, branch: string) =>
+    invoke<GitUpstreamInfo | null>("git_upstream_info", {
+      repoRoot,
+      branch,
       workspace: workspace(),
     }),
   gitListBranches: (repoRoot: string) =>

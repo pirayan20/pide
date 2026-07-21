@@ -380,6 +380,54 @@ fn log_paginates_from_a_snapshot_offset() {
 }
 
 #[test]
+fn log_snapshot_offset_ignores_new_head_commits() {
+    if skip_if_no_git() {
+        return;
+    }
+    let fx = GitRepoFixture::new();
+    for i in 0..3 {
+        let path = format!("before-{i}.txt");
+        fx.write_file(&path, "before\n");
+        fx.run_git(&["add", &path]);
+        fx.run_git(&["commit", "-q", "-m", &format!("before {i}")]);
+    }
+
+    let snapshot_log =
+        operations::log(&fx.registry, &fx.repo_str(), 10, None, 0, &fx.workspace).unwrap();
+    let first_page =
+        operations::log(&fx.registry, &fx.repo_str(), 1, None, 0, &fx.workspace).unwrap();
+    let snapshot = first_page[0].sha.clone();
+
+    fx.write_file("after.txt", "after\n");
+    fx.run_git(&["add", "after.txt"]);
+    fx.run_git(&["commit", "-q", "-m", "after snapshot"]);
+
+    let second_page = operations::log(
+        &fx.registry,
+        &fx.repo_str(),
+        10,
+        Some(&snapshot),
+        first_page.len() as u32,
+        &fx.workspace,
+    )
+    .unwrap();
+    let paged_shas: Vec<_> = first_page
+        .iter()
+        .chain(second_page.iter())
+        .map(|entry| entry.sha.as_str())
+        .collect();
+    let snapshot_shas: Vec<_> = snapshot_log
+        .iter()
+        .map(|entry| entry.sha.as_str())
+        .collect();
+
+    assert_eq!(paged_shas, snapshot_shas);
+    assert!(second_page
+        .iter()
+        .all(|entry| entry.subject != "after snapshot"));
+}
+
+#[test]
 fn log_snapshot_offset_traverses_merge_dag_without_duplicates() {
     if skip_if_no_git() {
         return;
@@ -467,6 +515,63 @@ fn remote_url_resolves_slash_remote_name() {
 }
 
 #[test]
+fn upstream_info_uses_git_tracking_config_without_guessing() {
+    if skip_if_no_git() {
+        return;
+    }
+    let fx = GitRepoFixture::new();
+    fx.write_file("seed.txt", "seed\n");
+    fx.run_git(&["add", "seed.txt"]);
+    fx.run_git(&["commit", "-q", "-m", "seed"]);
+    fx.run_git(&[
+        "remote",
+        "add",
+        "origin",
+        "https://github.com/right/repo.git",
+    ]);
+    fx.run_git(&[
+        "config",
+        "remote.origin/feat.url",
+        "https://github.com/wrong/repo.git",
+    ]);
+    fx.run_git(&["config", "branch.main.remote", "origin"]);
+    fx.run_git(&["config", "branch.main.merge", "refs/heads/feat/main"]);
+
+    let info = operations::upstream_info(&fx.registry, &fx.repo_str(), "main", &fx.workspace)
+        .unwrap()
+        .expect("upstream info");
+    assert_eq!(info.remote, "origin");
+    assert_eq!(info.branch, "feat/main");
+    assert_eq!(info.url, "https://github.com/right/repo.git");
+}
+
+#[test]
+fn upstream_info_supports_slash_remote_names() {
+    if skip_if_no_git() {
+        return;
+    }
+    let fx = GitRepoFixture::new();
+    fx.write_file("seed.txt", "seed\n");
+    fx.run_git(&["add", "seed.txt"]);
+    fx.run_git(&["commit", "-q", "-m", "seed"]);
+    fx.run_git(&[
+        "remote",
+        "add",
+        "corp/github",
+        "https://github.com/acme/pide.git",
+    ]);
+    fx.run_git(&["config", "branch.main.remote", "corp/github"]);
+    fx.run_git(&["config", "branch.main.merge", "refs/heads/main"]);
+
+    let info = operations::upstream_info(&fx.registry, &fx.repo_str(), "main", &fx.workspace)
+        .unwrap()
+        .expect("upstream info");
+    assert_eq!(info.remote, "corp/github");
+    assert_eq!(info.branch, "main");
+    assert_eq!(info.url, "https://github.com/acme/pide.git");
+}
+
+#[test]
 fn log_rejects_invalid_start_sha() {
     if skip_if_no_git() {
         return;
@@ -486,6 +591,22 @@ fn log_rejects_invalid_start_sha() {
         }
         Err(other) => panic!("expected CommandFailed, got {other}"),
         Ok(_) => panic!("expected error for bad start sha"),
+    }
+}
+
+#[test]
+fn log_rejects_unanchored_offset() {
+    if skip_if_no_git() {
+        return;
+    }
+    let fx = GitRepoFixture::new();
+
+    match operations::log(&fx.registry, &fx.repo_str(), 10, None, 1, &fx.workspace) {
+        Err(GitError::CommandFailed { detail, .. }) => {
+            assert_eq!(detail, "history offset requires a start sha");
+        }
+        Err(other) => panic!("expected CommandFailed, got {other}"),
+        Ok(_) => panic!("expected error for unanchored offset"),
     }
 }
 

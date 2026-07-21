@@ -89,9 +89,9 @@ Reuse the existing remote URL parser in `src/modules/git-history/lib/remoteWebUr
 - The parsed provider is GitHub.
 - The branch name is non-empty.
 
-The branch is encoded with `encodeURIComponent` before interpolation. Source Control loads the existing authorized `git_remote_url` value and derives the URL on the frontend. Browser opening uses the already installed `openUrl` function from `@tauri-apps/plugin-opener`.
+The branch is encoded with `encodeURIComponent` before interpolation. Source Control uses the authorized `git_upstream_info` command to resolve Git's exact tracking remote, remote branch, and remote URL without guessing at slash-separated names. The backend runs bounded Git metadata commands with separate arguments. Browser opening uses the already installed `openUrl` function from `@tauri-apps/plugin-opener`.
 
-No Rust command, process, dependency, credential, or network request is added.
+No dependency, credential, hosting API, or additional network request is added.
 
 ### Pull request eligibility
 

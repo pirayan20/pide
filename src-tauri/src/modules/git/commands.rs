@@ -5,7 +5,7 @@ use crate::modules::git::types::{
     DiscardEntry, GitBranchListResult, GitCommitFileChange, GitCommitResult, GitDiffContentResult,
     GitDiffResult, GitEditorBaselinesResult, GitLogEntry, GitMergeResult, GitPanelSnapshot,
     GitPushResult, GitRepoInfo, GitStashApplyResult, GitStashEntry, GitStashResult,
-    GitStatusSnapshot,
+    GitStatusSnapshot, GitUpstreamInfo,
 };
 use crate::modules::workspace::{WorkspaceEnv, WorkspaceRegistry};
 
@@ -280,6 +280,20 @@ pub async fn git_commit_file_diff(
             &workspace,
         )
         .map_err(Into::into)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn git_upstream_info(
+    repo_root: String,
+    branch: String,
+    workspace: Option<WorkspaceEnv>,
+    app: AppHandle,
+) -> Result<Option<GitUpstreamInfo>, String> {
+    let workspace = WorkspaceEnv::from_option(workspace);
+    blocking(app, move |r| {
+        operations::upstream_info(r, &repo_root, &branch, &workspace).map_err(Into::into)
     })
     .await
 }

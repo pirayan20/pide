@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GitStatusSnapshot } from "@/lib/native";
-import {
-  canOfferCreatePullRequest,
-  pullRequestUpstreamCandidates,
-} from "@/modules/source-control/lib/pullRequestAction";
+import { canOfferCreatePullRequest } from "@/modules/source-control/lib/pullRequestAction";
 
 const eligibleStatus: GitStatusSnapshot = {
   repoRoot: "/repo",
@@ -15,34 +12,6 @@ const eligibleStatus: GitStatusSnapshot = {
   truncated: false,
   changedFiles: [],
 };
-
-describe("pullRequestUpstreamCandidates", () => {
-  it("tries longest remote prefixes before shorter ones", () => {
-    expect(pullRequestUpstreamCandidates("corp/github/main")).toEqual([
-      { remote: "corp/github", branch: "main" },
-      { remote: "corp", branch: "github/main" },
-    ]);
-  });
-
-  it("includes ordinary remote and branch names after longer prefixes", () => {
-    expect(pullRequestUpstreamCandidates("upstream/feat/create-pr")).toEqual([
-      { remote: "upstream/feat", branch: "create-pr" },
-      { remote: "upstream", branch: "feat/create-pr" },
-    ]);
-  });
-
-  it.each([
-    null,
-    "",
-    "origin",
-    "/main",
-    "origin/",
-    "origin//main",
-    "origin/feat branch",
-  ])("rejects invalid upstream %j", (upstream) => {
-    expect(pullRequestUpstreamCandidates(upstream)).toEqual([]);
-  });
-});
 
 describe("canOfferCreatePullRequest", () => {
   it("accepts a clean attached synchronized branch", () => {

@@ -1,7 +1,6 @@
 import { native } from "@/lib/native";
 import { githubCompareUrl, parseRemoteWebUrl } from "@/modules/git-history";
 import { useEffect, useState } from "react";
-import { pullRequestUpstreamCandidates } from "./pullRequestAction";
 
 type PullRequestUrlState = {
   key: string | null;
@@ -32,35 +31,29 @@ export function usePullRequestUrl(
 
   useEffect(() => {
     let cancelled = false;
-    const candidates = pullRequestUpstreamCandidates(upstream);
     setState({ key, url: null });
-    if (!key || !repoRoot || candidates.length === 0) return;
+    if (!key || !repoRoot || !localBranch) return;
 
-    void (async () => {
-      for (const candidate of candidates) {
-        const remote = await native
-          .gitRemoteUrl(repoRoot, candidate.remote)
-          .catch(() => null);
-        if (remote !== null) {
-          if (!cancelled) {
-            setState({
-              key,
-              url: githubCompareUrl(
-                parseRemoteWebUrl(remote),
-                candidate.branch,
-              ),
-            });
-          }
-          return;
+    void native
+      .gitUpstreamInfo(repoRoot, localBranch)
+      .then((info) => {
+        if (!cancelled) {
+          setState({
+            key,
+            url: info
+              ? githubCompareUrl(parseRemoteWebUrl(info.url), info.branch)
+              : null,
+          });
         }
-      }
-      if (!cancelled) setState({ key, url: null });
-    })();
+      })
+      .catch(() => {
+        if (!cancelled) setState({ key, url: null });
+      });
 
     return () => {
       cancelled = true;
     };
-  }, [key, repoRoot, upstream]);
+  }, [key, localBranch, repoRoot]);
 
   return state.key === key ? state.url : null;
 }

@@ -143,6 +143,14 @@ pub struct GitPushResult {
     pub pushed: bool,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitUpstreamInfo {
+    pub remote: String,
+    pub branch: String,
+    pub url: String,
+}
+
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct GitBranchEntry {

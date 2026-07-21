@@ -11,7 +11,8 @@ use crate::modules::git::types::{
     DiscardEntry, GitBranchEntry, GitBranchListResult, GitCommitFileChange, GitCommitResult,
     GitDiffContentResult, GitDiffResult, GitEditorBaselinesResult, GitLogEntry, GitMergeResult,
     GitOutput, GitPanelSnapshot, GitPushResult, GitRepoInfo, GitStashApplyResult, GitStashEntry,
-    GitStashResult, GitStatusSnapshot, TextSource, DEFAULT_TIMEOUT_SECS, INLINE_DIFF_MAX_BYTES,
+    GitStashResult, GitStatusSnapshot, GitUpstreamInfo, TextSource, DEFAULT_TIMEOUT_SECS,
+    INLINE_DIFF_MAX_BYTES,
     MAX_TIMEOUT_SECS, NETWORK_TIMEOUT_SECS,
 };
 use crate::modules::git::utils::{
@@ -582,6 +583,12 @@ pub fn log(
             "history offset exceeds maximum",
         ));
     }
+    if offset > 0 && start_sha.is_none() {
+        return Err(GitError::command(
+            "git log",
+            "history offset requires a start sha",
+        ));
+    }
     if let Some(sha) = start_sha {
         if !sha_is_safe(sha) {
             return Err(GitError::command("git log", "invalid start sha"));
@@ -893,6 +900,69 @@ pub fn commit_file_diff(
         fallback_patch: patch_text,
         truncated: patch_output.truncated,
     })
+}
+
+pub fn upstream_info(
+    registry: &WorkspaceRegistry,
+    repo_root: &str,
+    branch: &str,
+    workspace: &WorkspaceEnv,
+) -> Result<Option<GitUpstreamInfo>> {
+    let repo_root = authorized_repo_root(registry, repo_root, workspace)?;
+    ensure_git_available(&repo_root.workspace)?;
+    if branch.is_empty() || branch.len() > 1024 {
+        return Ok(None);
+    }
+    let branch_check = run_git(
+        &repo_root.workspace,
+        Some(&repo_root.git_path),
+        ["check-ref-format", "--branch", branch],
+        DEFAULT_TIMEOUT_SECS,
+    )?;
+    if branch_check.exit_code != Some(0) {
+        return Ok(None);
+    }
+
+    let ref_name = format!("refs/heads/{branch}");
+    let output = run_git(
+        &repo_root.workspace,
+        Some(&repo_root.git_path),
+        [
+            "for-each-ref",
+            "--format=%(upstream:remotename)%00%(upstream:remoteref)",
+            "--",
+            &ref_name,
+        ],
+        DEFAULT_TIMEOUT_SECS,
+    )?;
+    ensure_success(&output, "git for-each-ref upstream failed")?;
+
+    let text = String::from_utf8_lossy(&output.stdout);
+    let Some((remote, remote_ref)) = text.trim_end_matches(['\r', '\n']).split_once('\0')
+    else {
+        return Ok(None);
+    };
+    let Some(remote_branch) = remote_ref.strip_prefix("refs/heads/") else {
+        return Ok(None);
+    };
+    if remote_branch.is_empty()
+        || remote.is_empty()
+        || remote.len() > 64
+        || !remote.chars().all(is_remote_name_char)
+    {
+        return Ok(None);
+    }
+
+    let url = git_stdout_line_opt(
+        &repo_root.workspace,
+        &repo_root.git_path,
+        ["config", "--get", &format!("remote.{remote}.url")],
+    )?;
+    Ok(url.map(|url| GitUpstreamInfo {
+        remote: remote.to_string(),
+        branch: remote_branch.to_string(),
+        url,
+    }))
 }
 
 pub fn remote_url(
