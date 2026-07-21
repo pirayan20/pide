@@ -1,5 +1,6 @@
 export type { EditorPaneHandle } from "./EditorPane";
 export { EditorStack } from "./EditorStackLazy";
+export { GitDiffPane } from "./GitDiffPaneLazy";
 export { GitDiffStack } from "./GitDiffStackLazy";
 export {
   type DiagnosticCounts,

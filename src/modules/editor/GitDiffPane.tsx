@@ -31,7 +31,7 @@ type CommitSource = {
   originalPath: string | null;
 };
 
-type Props = {
+export type GitDiffPaneProps = {
   source: WorkingSource | CommitSource;
   chipLabel?: string;
   active: boolean;
@@ -111,7 +111,7 @@ type LoadState =
     }
   | { kind: "error"; message: string };
 
-export function GitDiffPane({ source, chipLabel, active }: Props) {
+export function GitDiffPane({ source, chipLabel, active }: GitDiffPaneProps) {
   const cmRef = useRef<ReactCodeMirrorRef>(null);
   const themeExt = useEditorThemeExt();
   const splitContainerRef = useRef<HTMLDivElement>(null);
@@ -215,7 +215,12 @@ export function GitDiffPane({ source, chipLabel, active }: Props) {
 
   // Manage split view (MergeView) lifecycle
   useEffect(() => {
-    if (viewMode !== "split" || useFallback || !loaded || !splitContainerRef.current) {
+    if (
+      viewMode !== "split" ||
+      useFallback ||
+      !loaded ||
+      !splitContainerRef.current
+    ) {
       return;
     }
 
