@@ -564,37 +564,44 @@ pub fn push(
 
 const LOG_FORMAT: &str = "%x00%H%x00%an%x00%ae%x00%at%x00%P%x00%s%x00%b%x00";
 const MAX_LOG_LIMIT: u32 = 200;
+const MAX_LOG_OFFSET: u32 = 100_000;
 
 pub fn log(
     registry: &WorkspaceRegistry,
     repo_root: &str,
     limit: u32,
-    before_sha: Option<&str>,
+    start_sha: Option<&str>,
+    offset: u32,
     workspace: &WorkspaceEnv,
 ) -> Result<Vec<GitLogEntry>> {
     let repo_root = authorized_repo_root(registry, repo_root, workspace)?;
     ensure_git_available(&repo_root.workspace)?;
+    if offset > MAX_LOG_OFFSET {
+        return Err(GitError::command(
+            "git log",
+            "history offset exceeds maximum",
+        ));
+    }
+    if let Some(sha) = start_sha {
+        if !sha_is_safe(sha) {
+            return Err(GitError::command("git log", "invalid start sha"));
+        }
+    }
+
     let bounded = limit.clamp(1, MAX_LOG_LIMIT);
     let count_arg = format!("--max-count={bounded}");
+    let skip_arg = format!("--skip={offset}");
     let format_arg = format!("--format={LOG_FORMAT}");
-    let cursor = match before_sha {
-        Some(sha) if !sha.is_empty() => {
-            if !sha_is_safe(sha) {
-                return Err(GitError::command("git log", "invalid cursor sha"));
-            }
-            Some(format!("{sha}^@"))
-        }
-        _ => None,
-    };
     let mut args: Vec<&OsStr> = vec![
         OsStr::new("log"),
         OsStr::new("--no-color"),
         OsStr::new("--shortstat"),
         OsStr::new(&count_arg),
+        OsStr::new(&skip_arg),
         OsStr::new(&format_arg),
     ];
-    if let Some(spec) = cursor.as_deref() {
-        args.push(OsStr::new(spec));
+    if let Some(sha) = start_sha {
+        args.push(OsStr::new(sha));
     }
     let output = run_git(
         &repo_root.workspace,

@@ -32,7 +32,11 @@ import {
   returnToGraph,
   type HistoryView,
 } from "./lib/historyView";
-import { canLoadMore, isCurrentHistoryRequest } from "./lib/historyPagination";
+import {
+  canLoadMore,
+  isCurrentHistoryRequest,
+  snapshotHistoryPage,
+} from "./lib/historyPagination";
 import { parseRemoteWebUrl, type RemoteWebInfo } from "./lib/remoteWebUrl";
 
 const RAIL_RESERVED_PX = railWidth(MAX_VISIBLE_LANES);
@@ -280,8 +284,8 @@ export function GitHistoryPane({
     if (!canLoadMore(loadStatus, endReached, inflightMoreRef.current)) {
       return;
     }
-    const last = commits[commits.length - 1];
-    if (!last) return;
+    const page = snapshotHistoryPage(commits);
+    if (!page) return;
 
     const requestId = requestIdRef.current;
     const requestRepoRoot = repoRoot;
@@ -291,7 +295,8 @@ export function GitHistoryPane({
     try {
       const entries = await native.gitLog(repoRoot, {
         limit: PAGE_SIZE,
-        beforeSha: last.sha,
+        startSha: page.startSha,
+        offset: page.offset,
       });
       if (
         !isCurrentHistoryRequest(

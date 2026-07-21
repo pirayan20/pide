@@ -1,12 +1,12 @@
 mod common;
 
 use common::{git_available, GitRepoFixture};
-use tempfile::TempDir;
 use pide_lib::modules::fs::to_canon;
 use pide_lib::modules::git::errors::GitError;
 use pide_lib::modules::git::operations;
 use pide_lib::modules::git::types::DiscardEntry;
 use pide_lib::modules::workspace::{WorkspaceEnv, WorkspaceRegistry};
+use tempfile::TempDir;
 
 fn skip_if_no_git() -> bool {
     if !git_available() {
@@ -117,13 +117,13 @@ fn stage_then_commit_produces_log_entry() {
     assert!(entry.staged);
     assert!(!entry.untracked);
 
-    let commit = operations::commit(&fx.registry, &fx.repo_str(), "add a", &fx.workspace)
-        .expect("commit");
+    let commit =
+        operations::commit(&fx.registry, &fx.repo_str(), "add a", &fx.workspace).expect("commit");
     assert_eq!(commit.summary, "add a");
     assert_eq!(commit.commit_sha.len(), 40);
 
-    let entries = operations::log(&fx.registry, &fx.repo_str(), 10, None, &fx.workspace)
-        .expect("log");
+    let entries =
+        operations::log(&fx.registry, &fx.repo_str(), 10, None, 0, &fx.workspace).expect("log");
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].sha, commit.commit_sha);
     assert_eq!(entries[0].subject, "add a");
@@ -188,7 +188,7 @@ fn log_on_empty_repo_returns_empty_list() {
     }
     let fx = GitRepoFixture::new();
     let entries =
-        operations::log(&fx.registry, &fx.repo_str(), 10, None, &fx.workspace).expect("log");
+        operations::log(&fx.registry, &fx.repo_str(), 10, None, 0, &fx.workspace).expect("log");
     assert!(entries.is_empty());
 }
 
@@ -203,8 +203,8 @@ fn diff_shows_worktree_change() {
     fx.run_git(&["commit", "-q", "-m", "init"]);
     fx.write_file("a.txt", "alpha\nbeta\n");
 
-    let diff = operations::diff(&fx.registry, &fx.repo_str(), None, false, &fx.workspace)
-        .expect("diff");
+    let diff =
+        operations::diff(&fx.registry, &fx.repo_str(), None, false, &fx.workspace).expect("diff");
     assert!(diff.diff_text.contains("+beta"));
 }
 
@@ -304,9 +304,8 @@ fn panel_snapshot_outside_repo_is_empty() {
     let registry = WorkspaceRegistry::default();
     registry.authorize(&canonical).unwrap();
 
-    let snap =
-        operations::panel_snapshot(&registry, &to_canon(&canonical), &WorkspaceEnv::Local)
-            .expect("panel_snapshot");
+    let snap = operations::panel_snapshot(&registry, &to_canon(&canonical), &WorkspaceEnv::Local)
+        .expect("panel_snapshot");
     assert!(snap.repo.is_none());
     assert!(snap.status.is_none());
 }
@@ -322,7 +321,7 @@ fn show_commit_diff_returns_patch_for_known_sha() {
     fx.run_git(&["commit", "-q", "-m", "seed"]);
 
     let entries =
-        operations::log(&fx.registry, &fx.repo_str(), 10, None, &fx.workspace).unwrap();
+        operations::log(&fx.registry, &fx.repo_str(), 10, None, 0, &fx.workspace).unwrap();
     let sha = &entries[0].sha;
 
     let diff = operations::show_commit_diff(&fx.registry, &fx.repo_str(), sha, &fx.workspace)
@@ -337,12 +336,7 @@ fn show_commit_diff_rejects_invalid_sha() {
         return;
     }
     let fx = GitRepoFixture::new();
-    match operations::show_commit_diff(
-        &fx.registry,
-        &fx.repo_str(),
-        "not-a-sha",
-        &fx.workspace,
-    ) {
+    match operations::show_commit_diff(&fx.registry, &fx.repo_str(), "not-a-sha", &fx.workspace) {
         Err(GitError::CommandFailed { .. }) => {}
         Err(other) => panic!("expected CommandFailed, got {other}"),
         Ok(_) => panic!("expected error for invalid sha"),
@@ -350,7 +344,7 @@ fn show_commit_diff_rejects_invalid_sha() {
 }
 
 #[test]
-fn log_paginates_with_before_sha_cursor() {
+fn log_paginates_from_a_snapshot_offset() {
     if skip_if_no_git() {
         return;
     }
@@ -362,24 +356,31 @@ fn log_paginates_with_before_sha_cursor() {
     }
 
     let first_page =
-        operations::log(&fx.registry, &fx.repo_str(), 1, None, &fx.workspace).unwrap();
-    assert_eq!(first_page.len(), 1);
-    let cursor = first_page[0].sha.clone();
-
+        operations::log(&fx.registry, &fx.repo_str(), 1, None, 0, &fx.workspace).unwrap();
+    let snapshot = first_page[0].sha.clone();
     let second_page = operations::log(
         &fx.registry,
         &fx.repo_str(),
         10,
-        Some(&cursor),
+        Some(&snapshot),
+        first_page.len() as u32,
         &fx.workspace,
     )
     .unwrap();
-    assert!(second_page.iter().all(|e| e.sha != cursor));
-    assert_eq!(second_page.len(), 2);
+
+    let all: Vec<_> = first_page.into_iter().chain(second_page).collect();
+    assert_eq!(all.len(), 3);
+    assert_eq!(
+        all.iter()
+            .map(|entry| &entry.sha)
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
+        3
+    );
 }
 
 #[test]
-fn log_pagination_includes_all_merge_parent_histories() {
+fn log_snapshot_offset_traverses_merge_dag_without_duplicates() {
     if skip_if_no_git() {
         return;
     }
@@ -388,39 +389,63 @@ fn log_pagination_includes_all_merge_parent_histories() {
     fx.run_git(&["add", "seed.txt"]);
     fx.run_git(&["commit", "-q", "-m", "seed"]);
 
-    fx.write_file("main.txt", "main\n");
-    fx.run_git(&["add", "main.txt"]);
-    fx.run_git(&["commit", "-q", "-m", "main parent"]);
+    for i in 0..35 {
+        let path = format!("main-{i}.txt");
+        fx.write_file(&path, "main\n");
+        fx.run_git(&["add", &path]);
+        fx.run_git(&["commit", "-q", "-m", &format!("main {i}")]);
+    }
 
-    fx.run_git(&["checkout", "-q", "-b", "side", "HEAD~1"]);
-    fx.write_file("side.txt", "side\n");
-    fx.run_git(&["add", "side.txt"]);
-    fx.run_git(&["commit", "-q", "-m", "side commit"]);
+    fx.run_git(&["checkout", "-q", "-b", "side", "HEAD~35"]);
+    for i in 0..35 {
+        let path = format!("side-{i}.txt");
+        fx.write_file(&path, "side\n");
+        fx.run_git(&["add", &path]);
+        fx.run_git(&["commit", "-q", "-m", &format!("side {i}")]);
+    }
 
     fx.run_git(&["checkout", "-q", "main"]);
     fx.run_git(&["merge", "--no-ff", "side", "-m", "merge side"]);
 
-    let first_page =
-        operations::log(&fx.registry, &fx.repo_str(), 1, None, &fx.workspace).unwrap();
-    assert_eq!(first_page.len(), 1);
-    assert_eq!(first_page[0].subject, "merge side");
-    let cursor = first_page[0].sha.clone();
-
-    let next_page = operations::log(
-        &fx.registry,
-        &fx.repo_str(),
-        10,
-        Some(&cursor),
-        &fx.workspace,
-    )
-    .unwrap();
-    let subjects: Vec<_> = next_page
+    let one_shot =
+        operations::log(&fx.registry, &fx.repo_str(), 200, None, 0, &fx.workspace).unwrap();
+    let snapshot = one_shot[0].sha.clone();
+    let boundary = one_shot
         .iter()
-        .map(|entry| entry.subject.as_str())
-        .collect();
-    assert!(subjects.contains(&"main parent"));
-    assert!(subjects.contains(&"side commit"));
-    assert!(next_page.iter().all(|entry| entry.sha != cursor));
+        .position(|entry| entry.subject.starts_with("side ") && entry.parents.len() == 1)
+        .expect("a non-merge side commit in history")
+        + 1;
+    assert!(one_shot.len() > boundary);
+
+    let mut paged = Vec::new();
+    let mut offset = 0;
+    while offset < one_shot.len() {
+        let page = operations::log(
+            &fx.registry,
+            &fx.repo_str(),
+            boundary as u32,
+            Some(&snapshot),
+            offset as u32,
+            &fx.workspace,
+        )
+        .unwrap();
+        if page.is_empty() {
+            break;
+        }
+        offset += page.len();
+        paged.extend(page);
+    }
+
+    let one_shot_shas: Vec<_> = one_shot.iter().map(|entry| entry.sha.as_str()).collect();
+    let paged_shas: Vec<_> = paged.iter().map(|entry| entry.sha.as_str()).collect();
+    assert_eq!(paged_shas, one_shot_shas);
+    assert_eq!(
+        paged_shas
+            .iter()
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
+        paged_shas.len()
+    );
 }
 
 #[test]
@@ -436,36 +461,54 @@ fn remote_url_resolves_slash_remote_name() {
         "https://github.com/acme/pide.git",
     ]);
 
-    let url = operations::remote_url(
-        &fx.registry,
-        &fx.repo_str(),
-        "corp/github",
-        &fx.workspace,
-    )
-    .unwrap();
+    let url =
+        operations::remote_url(&fx.registry, &fx.repo_str(), "corp/github", &fx.workspace).unwrap();
     assert_eq!(url.as_deref(), Some("https://github.com/acme/pide.git"));
 }
 
 #[test]
-fn log_with_invalid_cursor_sha_errors() {
+fn log_rejects_invalid_start_sha() {
     if skip_if_no_git() {
         return;
     }
     let fx = GitRepoFixture::new();
-    fx.write_file("a.txt", "x\n");
-    fx.run_git(&["add", "a.txt"]);
-    fx.run_git(&["commit", "-q", "-m", "seed"]);
 
     match operations::log(
         &fx.registry,
         &fx.repo_str(),
         10,
         Some("not-hex"),
+        0,
         &fx.workspace,
     ) {
-        Err(GitError::CommandFailed { .. }) => {}
+        Err(GitError::CommandFailed { detail, .. }) => {
+            assert_eq!(detail, "invalid start sha");
+        }
         Err(other) => panic!("expected CommandFailed, got {other}"),
-        Ok(_) => panic!("expected error for bad cursor"),
+        Ok(_) => panic!("expected error for bad start sha"),
+    }
+}
+
+#[test]
+fn log_rejects_offset_above_history_limit() {
+    if skip_if_no_git() {
+        return;
+    }
+    let fx = GitRepoFixture::new();
+
+    match operations::log(
+        &fx.registry,
+        &fx.repo_str(),
+        10,
+        None,
+        100_001,
+        &fx.workspace,
+    ) {
+        Err(GitError::CommandFailed { detail, .. }) => {
+            assert_eq!(detail, "history offset exceeds maximum");
+        }
+        Err(other) => panic!("expected CommandFailed, got {other}"),
+        Ok(_) => panic!("expected error for oversized offset"),
     }
 }
 
@@ -484,7 +527,7 @@ fn commit_files_reports_added_and_modified() {
     fx.run_git(&["commit", "-q", "-m", "modify"]);
 
     let entries =
-        operations::log(&fx.registry, &fx.repo_str(), 10, None, &fx.workspace).unwrap();
+        operations::log(&fx.registry, &fx.repo_str(), 10, None, 0, &fx.workspace).unwrap();
     let head = &entries[0].sha;
 
     let files =
@@ -509,12 +552,18 @@ fn commit_file_diff_returns_original_and_modified_text() {
     fx.run_git(&["commit", "-q", "-m", "v2"]);
 
     let entries =
-        operations::log(&fx.registry, &fx.repo_str(), 10, None, &fx.workspace).unwrap();
+        operations::log(&fx.registry, &fx.repo_str(), 10, None, 0, &fx.workspace).unwrap();
     let head = &entries[0].sha;
 
-    let diff =
-        operations::commit_file_diff(&fx.registry, &fx.repo_str(), head, "a.txt", None, &fx.workspace)
-            .unwrap();
+    let diff = operations::commit_file_diff(
+        &fx.registry,
+        &fx.repo_str(),
+        head,
+        "a.txt",
+        None,
+        &fx.workspace,
+    )
+    .unwrap();
     assert_eq!(diff.original_content, "v1\n");
     assert_eq!(diff.modified_content, "v2\n");
     assert!(!diff.is_binary);
@@ -526,8 +575,8 @@ fn remote_url_returns_none_for_missing_remote() {
         return;
     }
     let fx = GitRepoFixture::new();
-    let url = operations::remote_url(&fx.registry, &fx.repo_str(), "origin", &fx.workspace)
-        .unwrap();
+    let url =
+        operations::remote_url(&fx.registry, &fx.repo_str(), "origin", &fx.workspace).unwrap();
     assert!(url.is_none());
 }
 
@@ -537,15 +586,10 @@ fn remote_url_returns_configured_url() {
         return;
     }
     let fx = GitRepoFixture::new();
-    fx.run_git(&[
-        "remote",
-        "add",
-        "origin",
-        "https://example.com/x.git",
-    ]);
+    fx.run_git(&["remote", "add", "origin", "https://example.com/x.git"]);
 
-    let url = operations::remote_url(&fx.registry, &fx.repo_str(), "origin", &fx.workspace)
-        .unwrap();
+    let url =
+        operations::remote_url(&fx.registry, &fx.repo_str(), "origin", &fx.workspace).unwrap();
     assert_eq!(url.as_deref(), Some("https://example.com/x.git"));
 }
 
@@ -580,8 +624,8 @@ fn editor_baselines_return_head_and_index_text() {
     fx.write_file("a.txt", "index\nlive\n");
 
     let path = to_canon(fx.repo_path.join("a.txt"));
-    let result = operations::editor_baselines(&fx.registry, &path, &fx.workspace)
-        .expect("editor baselines");
+    let result =
+        operations::editor_baselines(&fx.registry, &path, &fx.workspace).expect("editor baselines");
 
     let repo_root = fx.repo_str();
     assert_eq!(result.repo_root.as_deref(), Some(repo_root.as_str()));
@@ -732,14 +776,18 @@ fn checkout_branch_rejects_unsafe_names() {
         return;
     }
     let fx = GitRepoFixture::new();
-    
-    let err_empty = operations::checkout_branch(&fx.registry, &fx.repo_str(), "", &fx.workspace).unwrap_err();
+
+    let err_empty =
+        operations::checkout_branch(&fx.registry, &fx.repo_str(), "", &fx.workspace).unwrap_err();
     assert!(matches!(err_empty, GitError::InvalidPath(p) if p.is_empty()));
 
-    let err_dash = operations::checkout_branch(&fx.registry, &fx.repo_str(), "-f", &fx.workspace).unwrap_err();
+    let err_dash =
+        operations::checkout_branch(&fx.registry, &fx.repo_str(), "-f", &fx.workspace).unwrap_err();
     assert!(matches!(err_dash, GitError::InvalidPath(p) if p == "-f"));
 
-    let err_dash_long = operations::checkout_branch(&fx.registry, &fx.repo_str(), "--detach", &fx.workspace).unwrap_err();
+    let err_dash_long =
+        operations::checkout_branch(&fx.registry, &fx.repo_str(), "--detach", &fx.workspace)
+            .unwrap_err();
     assert!(matches!(err_dash_long, GitError::InvalidPath(p) if p == "--detach"));
 }
 
@@ -756,7 +804,13 @@ fn list_branches_keeps_current_branch_local_and_surfaces_worktrees() {
 
     let wt = TempDir::new().unwrap();
     let wt_path = wt.path().join("linked");
-    fx.run_git(&["worktree", "add", "-q", wt_path.to_str().unwrap(), "feature"]);
+    fx.run_git(&[
+        "worktree",
+        "add",
+        "-q",
+        wt_path.to_str().unwrap(),
+        "feature",
+    ]);
 
     let result = operations::list_branches(&fx.registry, &fx.repo_str(), &fx.workspace)
         .expect("list_branches");
@@ -771,7 +825,11 @@ fn list_branches_keeps_current_branch_local_and_surfaces_worktrees() {
     assert!(main.is_head);
     assert!(main.worktree_path.is_none());
 
-    let feature: Vec<_> = result.branches.iter().filter(|b| b.name == "feature").collect();
+    let feature: Vec<_> = result
+        .branches
+        .iter()
+        .filter(|b| b.name == "feature")
+        .collect();
     assert_eq!(feature.len(), 1);
     assert_eq!(feature[0].kind, "worktree");
     assert!(!feature[0].is_head);
@@ -797,14 +855,18 @@ fn create_branch_then_delete_round_trip() {
         &fx.workspace,
     )
     .expect("create_branch");
-    let branches =
-        operations::list_branches(&fx.registry, &fx.repo_str(), &fx.workspace).unwrap();
+    let branches = operations::list_branches(&fx.registry, &fx.repo_str(), &fx.workspace).unwrap();
     assert!(branches.branches.iter().any(|b| b.name == "feature"));
 
-    operations::delete_branch(&fx.registry, &fx.repo_str(), "feature", false, &fx.workspace)
-        .expect("delete_branch");
-    let branches =
-        operations::list_branches(&fx.registry, &fx.repo_str(), &fx.workspace).unwrap();
+    operations::delete_branch(
+        &fx.registry,
+        &fx.repo_str(),
+        "feature",
+        false,
+        &fx.workspace,
+    )
+    .expect("delete_branch");
+    let branches = operations::list_branches(&fx.registry, &fx.repo_str(), &fx.workspace).unwrap();
     assert!(!branches.branches.iter().any(|b| b.name == "feature"));
 }
 
@@ -825,8 +887,8 @@ fn stash_save_then_apply_restores_change() {
     let content = std::fs::read_to_string(fx.repo_path.join("a.txt")).unwrap();
     assert_eq!(content, "alpha\n");
 
-    let stashes = operations::stash_list(&fx.registry, &fx.repo_str(), &fx.workspace)
-        .expect("stash_list");
+    let stashes =
+        operations::stash_list(&fx.registry, &fx.repo_str(), &fx.workspace).expect("stash_list");
     let sha = &stashes.first().expect("one stash").sha;
     let applied = operations::stash_apply(&fx.registry, &fx.repo_str(), sha, false, &fx.workspace)
         .expect("stash_apply");

@@ -6,6 +6,13 @@ export function canLoadMore(
   return !endReached && !inFlight && (status === "idle" || status === "error");
 }
 
+export function snapshotHistoryPage(
+  commits: ReadonlyArray<{ sha: string }>,
+): { startSha: string; offset: number } | null {
+  const snapshot = commits[0];
+  return snapshot ? { startSha: snapshot.sha, offset: commits.length } : null;
+}
+
 export function isCurrentHistoryRequest(
   requestId: number,
   currentRequestId: number,

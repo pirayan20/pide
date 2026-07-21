@@ -233,12 +233,13 @@ export const native = {
     invoke<GitPushResult>("git_push", { repoRoot, workspace: workspace() }),
   gitLog: (
     repoRoot: string,
-    options?: { limit?: number; beforeSha?: string },
+    options?: { limit?: number; startSha?: string; offset?: number },
   ) =>
     invoke<GitLogEntry[]>("git_log", {
       repoRoot,
       limit: options?.limit ?? null,
-      beforeSha: options?.beforeSha ?? null,
+      startSha: options?.startSha ?? null,
+      offset: options?.offset ?? 0,
       workspace: workspace(),
     }),
   gitCommitFiles: (repoRoot: string, sha: string) =>
