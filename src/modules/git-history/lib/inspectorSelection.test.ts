@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { GitCommitFileChange } from "@/lib/native";
-import { selectInspectorFilePath } from "@/modules/git-history/lib/inspectorSelection";
+import {
+  reconcileInspectorSelection,
+  selectInspectorFilePath,
+} from "@/modules/git-history/lib/inspectorSelection";
 
 const files: GitCommitFileChange[] = [
   {
@@ -34,5 +37,15 @@ describe("selectInspectorFilePath", () => {
 
   it("returns null when the commit has no changed files", () => {
     expect(selectInspectorFilePath("src/one.ts", [])).toBeNull();
+  });
+
+  it("uses the current commit's first file immediately", () => {
+    expect(
+      reconcileInspectorSelection(
+        { commitSha: "old", path: "src/two.ts" },
+        "current",
+        files,
+      ),
+    ).toEqual({ commitSha: "current", path: "src/one.ts" });
   });
 });

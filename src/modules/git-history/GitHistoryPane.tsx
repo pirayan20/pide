@@ -1,7 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
 import {
   native,
   type GitCommitFileChange,
@@ -33,6 +32,7 @@ import {
   returnToGraph,
   type HistoryView,
 } from "./lib/historyView";
+import { canLoadMore, isCurrentHistoryRequest } from "./lib/historyPagination";
 import { parseRemoteWebUrl, type RemoteWebInfo } from "./lib/remoteWebUrl";
 
 const RAIL_RESERVED_PX = railWidth(MAX_VISIBLE_LANES);
@@ -163,6 +163,8 @@ export function GitHistoryPane({
   const bumpFiles = useCallback(() => setFilesTick((n) => n + 1), []);
 
   const requestIdRef = useRef(0);
+  const repoRootRef = useRef(repoRoot);
+  repoRootRef.current = repoRoot;
   const inflightMoreRef = useRef(false);
   const filesInflightRef = useRef(new Set<string>());
   const filesGenerationRef = useRef(0);
@@ -274,26 +276,53 @@ export function GitHistoryPane({
   }, [repoRoot]);
 
   const loadMore = useCallback(async () => {
-    if (inflightMoreRef.current || endReached) return;
-    if (loadStatus !== "idle") return;
+    if (loadStatus !== "idle" && loadStatus !== "error") return;
+    if (!canLoadMore(loadStatus, endReached, inflightMoreRef.current)) {
+      return;
+    }
     const last = commits[commits.length - 1];
     if (!last) return;
+
+    const requestId = requestIdRef.current;
+    const requestRepoRoot = repoRoot;
     inflightMoreRef.current = true;
+    setError(null);
     setLoadStatus("more");
     try {
       const entries = await native.gitLog(repoRoot, {
         limit: PAGE_SIZE,
         beforeSha: last.sha,
       });
+      if (
+        !isCurrentHistoryRequest(
+          requestId,
+          requestIdRef.current,
+          requestRepoRoot,
+          repoRootRef.current,
+        )
+      ) {
+        return;
+      }
       setCommits((prev) => {
         const seen = new Set(prev.map((c) => c.sha));
         const merged = [...prev];
-        for (const e of entries) if (!seen.has(e.sha)) merged.push(e);
+        for (const entry of entries)
+          if (!seen.has(entry.sha)) merged.push(entry);
         return merged;
       });
       if (entries.length < PAGE_SIZE) setEndReached(true);
       setLoadStatus("idle");
     } catch (err) {
+      if (
+        !isCurrentHistoryRequest(
+          requestId,
+          requestIdRef.current,
+          requestRepoRoot,
+          repoRootRef.current,
+        )
+      ) {
+        return;
+      }
       setError(normalizeError(err));
       setLoadStatus("error");
     } finally {
@@ -451,6 +480,9 @@ export function GitHistoryPane({
             onRetryFiles={() => void fetchFiles(view.sha)}
             onOpenFileTab={handleOpenFileTab}
             isLoadingMore={loadStatus === "more"}
+            paginationError={
+              loadStatus === "error" && commits.length > 0 ? error : null
+            }
             endReached={endReached}
             onLoadMore={activeSearch ? undefined : () => void loadMore()}
           />
@@ -527,7 +559,6 @@ export function GitHistoryPane({
                       <CommitRow
                         commit={commit}
                         query={activeSearch}
-                        active={false}
                         graphRow={graphByCommit.get(commit.sha) ?? null}
                         maxLaneCount={maxLaneCount}
                         gridTemplate={gridTemplate}
@@ -581,17 +612,15 @@ function CenterPlaceholder({ children }: { children: ReactNode }) {
 type CommitRowProps = {
   commit: GitLogEntry;
   query: string;
-  active: boolean;
   graphRow: GraphRow | null;
   maxLaneCount: number;
   gridTemplate: string;
-  onClick: (sha: string, event: React.MouseEvent<HTMLElement>) => void;
+  onClick: (sha: string) => void;
 };
 
 const CommitRow = memo(function CommitRow({
   commit,
   query,
-  active,
   graphRow,
   maxLaneCount,
   gridTemplate,
@@ -603,11 +632,8 @@ const CommitRow = memo(function CommitRow({
   return (
     <button
       type="button"
-      onClick={(event) => onClick(commit.sha, event)}
-      className={cn(
-        "group relative grid h-full w-full cursor-pointer items-center gap-3 border-l-2 border-transparent pr-3 text-left transition-colors",
-        active ? "border-l-primary/70 bg-accent/45" : "hover:bg-accent/25",
-      )}
+      onClick={() => onClick(commit.sha)}
+      className="group relative grid h-full w-full cursor-pointer items-center gap-3 border-l-2 border-transparent pr-3 text-left transition-colors hover:bg-accent/25"
       style={{ gridTemplateColumns: gridTemplate }}
     >
       <div className="flex items-center justify-start pl-1">
@@ -616,21 +642,14 @@ const CommitRow = memo(function CommitRow({
             row={graphRow}
             rowHeight={ROW_HEIGHT}
             maxLaneCount={maxLaneCount}
-            active={active}
+            active={false}
           />
         ) : null}
       </div>
       <span className="pl-px font-mono text-[10.5px] tabular-nums text-muted-foreground/80">
         {commit.shortSha}
       </span>
-      <span
-        className={cn(
-          "min-w-0 truncate text-[12px] leading-tight",
-          active
-            ? "font-semibold text-foreground"
-            : "font-medium text-foreground/95",
-        )}
-      >
+      <span className="min-w-0 truncate text-[12px] font-medium leading-tight text-foreground/95">
         {commit.subject ? (
           highlight(commit.subject, query)
         ) : (

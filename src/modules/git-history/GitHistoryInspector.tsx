@@ -7,8 +7,11 @@ import { Copy01Icon, LinkSquare02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { useEffect, useRef, useState } from "react";
-import { selectInspectorFilePath } from "./lib/inspectorSelection";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  reconcileInspectorSelection,
+  type InspectorSelection,
+} from "./lib/inspectorSelection";
 import {
   commitWebUrl,
   hostLabel,
@@ -35,6 +38,7 @@ type Props = {
   onRetryFiles: () => void;
   onOpenFileTab: (commit: GitLogEntry, file: GitCommitFileChange) => void;
   isLoadingMore: boolean;
+  paginationError: string | null;
   endReached: boolean;
   onLoadMore?: () => void;
 };
@@ -93,15 +97,16 @@ export function GitHistoryInspector({
   onRetryFiles,
   onOpenFileTab,
   isLoadingMore,
+  paginationError,
   endReached,
   onLoadMore,
 }: Props) {
   const commit = commits.find((entry) => entry.sha === selectedSha) ?? null;
   const files = filesState.state === "loaded" ? filesState.files : EMPTY_FILES;
-  const [selection, setSelection] = useState<{
-    commitSha: string | null;
-    path: string | null;
-  }>({ commitSha: null, path: null });
+  const [selection, setSelection] = useState<InspectorSelection>({
+    commitSha: null,
+    path: null,
+  });
   const listRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
     count: commits.length,
@@ -111,14 +116,16 @@ export function GitHistoryInspector({
     getItemKey: (index) => commits[index]?.sha ?? index,
   });
 
+  const reconciledSelection = reconcileInspectorSelection(
+    selection,
+    selectedSha,
+    files,
+  );
+
   useEffect(() => {
-    setSelection((current) => ({
-      commitSha: selectedSha,
-      path: selectInspectorFilePath(
-        current.commitSha === selectedSha ? current.path : null,
-        files,
-      ),
-    }));
+    setSelection((current) =>
+      reconcileInspectorSelection(current, selectedSha, files),
+    );
   }, [files, selectedSha]);
 
   useEffect(() => {
@@ -128,7 +135,20 @@ export function GitHistoryInspector({
   const webUrl =
     commit && remoteWeb ? commitWebUrl(remoteWeb, commit.sha) : null;
   const selectedFile =
-    files.find((file) => file.path === selection.path) ?? null;
+    files.find((file) => file.path === reconciledSelection.path) ?? null;
+  const selectedFilePath = selectedFile?.path ?? null;
+  const selectedOriginalPath = selectedFile?.originalPath ?? null;
+  const selectedCommitSha = commit?.sha ?? null;
+  const diffSource = useMemo(() => {
+    if (!selectedCommitSha || !selectedFilePath) return null;
+    return {
+      kind: "commit" as const,
+      repoRoot,
+      sha: selectedCommitSha,
+      path: selectedFilePath,
+      originalPath: selectedOriginalPath,
+    };
+  }, [repoRoot, selectedCommitSha, selectedFilePath, selectedOriginalPath]);
 
   const handleListScroll = () => {
     const element = listRef.current;
@@ -204,6 +224,18 @@ export function GitHistoryInspector({
             {isLoadingMore ? (
               <div className="px-3 py-2 text-[10.5px] text-muted-foreground">
                 Loading more…
+              </div>
+            ) : paginationError ? (
+              <div className="flex items-center justify-between gap-2 px-3 py-2 text-[10.5px] text-destructive">
+                <span className="min-w-0 truncate">{paginationError}</span>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  className="h-6 cursor-pointer text-[10.5px]"
+                  onClick={onLoadMore}
+                >
+                  Retry
+                </Button>
               </div>
             ) : endReached ? (
               <div className="px-3 py-2 text-[10.5px] text-muted-foreground/65">
@@ -381,18 +413,14 @@ export function GitHistoryInspector({
                     </Button>
                   </div>
                   <div className="min-h-0 flex-1">
-                    <GitDiffPane
-                      key={`${commit.sha}:${selectedFile.path}`}
-                      active
-                      chipLabel="Commit"
-                      source={{
-                        kind: "commit",
-                        repoRoot,
-                        sha: commit.sha,
-                        path: selectedFile.path,
-                        originalPath: selectedFile.originalPath,
-                      }}
-                    />
+                    {diffSource ? (
+                      <GitDiffPane
+                        key={`${commit.sha}:${selectedFile.path}`}
+                        active
+                        chipLabel="Commit"
+                        source={diffSource}
+                      />
+                    ) : null}
                   </div>
                 </div>
               ) : (
