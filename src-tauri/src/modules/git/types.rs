@@ -129,6 +129,7 @@ pub struct GitLogEntry {
     pub timestamp_secs: i64,
     pub parents: Vec<String>,
     pub subject: String,
+    pub body: String,
     pub files_changed: u32,
     pub insertions: u32,
     pub deletions: u32,

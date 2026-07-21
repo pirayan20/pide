@@ -67,6 +67,7 @@ export type GitLogEntry = {
   timestampSecs: number;
   parents: string[];
   subject: string;
+  body: string;
   filesChanged: number;
   insertions: number;
   deletions: number;

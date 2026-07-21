@@ -562,7 +562,7 @@ pub fn push(
     })
 }
 
-const LOG_FORMAT: &str = "%H%x1f%an%x1f%ae%x1f%at%x1f%P%x1f%s";
+const LOG_FORMAT: &str = "%x00%H%x00%an%x00%ae%x00%at%x00%P%x00%s%x00%b%x00";
 const MAX_LOG_LIMIT: u32 = 200;
 
 pub fn log(
@@ -616,60 +616,65 @@ pub fn log(
         }
         return ensure_success(&output, "git log failed").map(|_| Vec::new());
     }
-    let stdout = std::str::from_utf8(&output.stdout).unwrap_or("");
-    let mut entries: Vec<GitLogEntry> = Vec::with_capacity(bounded as usize);
-    // Lines we get back interleave:
-    //   <sha>\x1f<author>\x1f<email>\x1f<ts>\x1f<parents>\x1f<subject>
-    //   <blank>
-    //    5 files changed, 12 insertions(+), 3 deletions(-)
-    // Commits without diffstats (root commits, merges with no changes) just
-    // skip the shortstat line. Detect commit headers by the presence of
-    // the unit-separator we put in the format.
-    for raw_line in stdout.lines() {
-        let line = raw_line.trim_end_matches('\r');
-        if line.is_empty() {
+    Ok(parse_log_output(&output.stdout, bounded))
+}
+
+fn parse_log_output(bytes: &[u8], limit: u32) -> Vec<GitLogEntry> {
+    let mut entries = Vec::with_capacity(limit as usize);
+    let mut cursor = 0;
+
+    while cursor < bytes.len() && entries.len() < limit as usize {
+        if bytes[cursor] != 0 {
+            break;
+        }
+        cursor += 1;
+
+        let mut fields = Vec::with_capacity(7);
+        for _ in 0..7 {
+            let Some(end) = bytes[cursor..].iter().position(|byte| *byte == 0) else {
+                return entries;
+            };
+            fields.push(String::from_utf8_lossy(&bytes[cursor..cursor + end]).into_owned());
+            cursor += end + 1;
+        }
+
+        let tail_end = bytes[cursor..]
+            .iter()
+            .position(|byte| *byte == 0)
+            .map(|offset| cursor + offset)
+            .unwrap_or(bytes.len());
+        let shortstat = String::from_utf8_lossy(&bytes[cursor..tail_end]);
+        cursor = tail_end;
+
+        let sha = fields[0].clone();
+        if !sha_is_safe(&sha) {
             continue;
         }
-        if line.contains('\x1f') {
-            let mut fields = line.splitn(6, '\x1f');
-            let sha = fields.next().unwrap_or("").to_string();
-            if !sha_is_safe(&sha) {
-                continue;
-            }
-            let author = fields.next().unwrap_or("").to_string();
-            let author_email = fields.next().unwrap_or("").to_string();
-            let timestamp = fields.next().unwrap_or("0").parse::<i64>().unwrap_or(0);
-            let parents_raw = fields.next().unwrap_or("");
-            let parents: Vec<String> = parents_raw
+        let (files_changed, insertions, deletions) = shortstat
+            .lines()
+            .find(|line| line.contains("file changed") || line.contains("files changed"))
+            .map(parse_shortstat)
+            .unwrap_or((0, 0, 0));
+
+        entries.push(GitLogEntry {
+            short_sha: sha.chars().take(7).collect(),
+            sha,
+            author: fields[1].clone(),
+            author_email: fields[2].clone(),
+            timestamp_secs: fields[3].parse().unwrap_or(0),
+            parents: fields[4]
                 .split_ascii_whitespace()
-                .map(|s| s.to_string())
-                .collect();
-            let subject = fields.next().unwrap_or("").to_string();
-            let short_sha = sha.chars().take(7).collect::<String>();
-            entries.push(GitLogEntry {
-                sha,
-                short_sha,
-                author,
-                author_email,
-                timestamp_secs: timestamp,
-                parents,
-                subject,
-                files_changed: 0,
-                insertions: 0,
-                deletions: 0,
-            });
-            continue;
-        }
-        if let Some(current) = entries.last_mut() {
-            if line.contains("file changed") || line.contains("files changed") {
-                let (files, ins, del) = parse_shortstat(line);
-                current.files_changed = files;
-                current.insertions = ins;
-                current.deletions = del;
-            }
-        }
+                .map(str::to_string)
+                .collect(),
+            subject: fields[5].clone(),
+            body: fields[6].trim_end().to_string(),
+            files_changed,
+            insertions,
+            deletions,
+        });
     }
-    Ok(entries)
+
+    entries
 }
 
 pub fn show_commit_diff(
@@ -1170,10 +1175,7 @@ pub fn list_branches(
                 && !existing.is_head;
             if should_replace {
                 let is_head = existing.is_head || b.is_head;
-                deduped[existing_idx] = GitBranchEntry {
-                    is_head,
-                    ..b
-                };
+                deduped[existing_idx] = GitBranchEntry { is_head, ..b };
             } else if b.is_head && !existing.is_head {
                 let mut updated = deduped[existing_idx].clone();
                 updated.is_head = true;
@@ -1205,7 +1207,11 @@ fn push_worktree(
         b.clone()
     } else if let Some(ref sha) = head_sha {
         // if detached HEAD with no branch — show shortened SHA as name
-        let short = if sha.len() >= 7 { &sha[..7] } else { sha.as_str() };
+        let short = if sha.len() >= 7 {
+            &sha[..7]
+        } else {
+            sha.as_str()
+        };
         format!("(detached @ {})", short)
     } else {
         return;
@@ -1622,6 +1628,74 @@ mod tests {
         for c in " /:\\?\"'".chars() {
             assert!(!is_remote_name_char(c));
         }
+    }
+
+    fn log_record(fields: [&str; 7], shortstat: &str) -> Vec<u8> {
+        let mut output = vec![0];
+        for field in fields {
+            output.extend_from_slice(field.as_bytes());
+            output.push(0);
+        }
+        output.push(b'\n');
+        output.extend_from_slice(shortstat.as_bytes());
+        output.push(b'\n');
+        output
+    }
+
+    #[test]
+    fn parses_multiline_log_body_and_shortstat() {
+        let sha = "a".repeat(40);
+        let bytes = log_record(
+            [
+                &sha,
+                "Ada",
+                "ada@example.com",
+                "1700000000",
+                "parent",
+                "subject",
+                "body line 1\nbody line 2\n",
+            ],
+            " 2 files changed, 3 insertions(+), 1 deletion(-)",
+        );
+
+        let entries = parse_log_output(&bytes, 10);
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].subject, "subject");
+        assert_eq!(entries[0].body, "body line 1\nbody line 2");
+        assert_eq!(entries[0].files_changed, 2);
+        assert_eq!(entries[0].insertions, 3);
+        assert_eq!(entries[0].deletions, 1);
+    }
+
+    #[test]
+    fn parses_two_nul_delimited_log_records_with_empty_and_nonempty_bodies() {
+        let first_sha = "a".repeat(40);
+        let second_sha = "b".repeat(40);
+        let mut bytes = log_record(
+            [&first_sha, "Ada", "ada@example.com", "1", "", "one", ""],
+            "",
+        );
+        bytes.extend(log_record(
+            [
+                &second_sha,
+                "Bob",
+                "bob@example.com",
+                "2",
+                &first_sha,
+                "two",
+                "body",
+            ],
+            "",
+        ));
+
+        let entries = parse_log_output(&bytes, 10);
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].sha, first_sha);
+        assert_eq!(entries[0].body, "");
+        assert_eq!(entries[1].sha, second_sha);
+        assert_eq!(entries[1].body, "body");
     }
 
     #[test]
