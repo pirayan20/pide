@@ -51,13 +51,13 @@ The Git module gains a pull request operation that executes the GitHub CLI insid
 The operation first runs:
 
 ```text
-gh pr view --json url --jq .url
+gh pr list --head <branch> --state open --json url --limit 1 --jq '.[0].url'
 ```
 
 Outcomes:
 
-- Exit code 0 with an HTTPS URL means an existing pull request was found.
-- The documented no-pull-request result means no pull request exists.
+- Exit code 0 with an HTTPS URL means an existing open pull request was found.
+- Exit code 0 with empty output means no open pull request exists.
 - Missing `gh`, unauthenticated `gh`, unsupported remote, or other command failures return a user-readable error.
 
 Creation runs:
