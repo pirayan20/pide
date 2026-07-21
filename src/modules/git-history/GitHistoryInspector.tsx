@@ -8,6 +8,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useRef, useState } from "react";
+import { selectInspectorFilePath } from "./lib/inspectorSelection";
 import {
   commitWebUrl,
   hostLabel,
@@ -16,6 +17,7 @@ import {
 
 const COMMIT_ROW_HEIGHT = 48;
 const NEAR_BOTTOM_PX = 240;
+const EMPTY_FILES: readonly GitCommitFileChange[] = [];
 
 export type FilesState =
   | { state: "loading" }
@@ -95,8 +97,11 @@ export function GitHistoryInspector({
   onLoadMore,
 }: Props) {
   const commit = commits.find((entry) => entry.sha === selectedSha) ?? null;
-  const files = filesState.state === "loaded" ? filesState.files : [];
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const files = filesState.state === "loaded" ? filesState.files : EMPTY_FILES;
+  const [selection, setSelection] = useState<{
+    commitSha: string | null;
+    path: string | null;
+  }>({ commitSha: null, path: null });
   const listRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
     count: commits.length,
@@ -107,8 +112,14 @@ export function GitHistoryInspector({
   });
 
   useEffect(() => {
-    setSelectedPath(files[0]?.path ?? null);
-  }, [files]);
+    setSelection((current) => ({
+      commitSha: selectedSha,
+      path: selectInspectorFilePath(
+        current.commitSha === selectedSha ? current.path : null,
+        files,
+      ),
+    }));
+  }, [files, selectedSha]);
 
   useEffect(() => {
     if (!commit) onBack();
@@ -116,7 +127,8 @@ export function GitHistoryInspector({
 
   const webUrl =
     commit && remoteWeb ? commitWebUrl(remoteWeb, commit.sha) : null;
-  const selectedFile = files.find((file) => file.path === selectedPath) ?? null;
+  const selectedFile =
+    files.find((file) => file.path === selection.path) ?? null;
 
   const handleListScroll = () => {
     const element = listRef.current;
@@ -141,7 +153,10 @@ export function GitHistoryInspector({
         </Button>
       </header>
       <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(220px,28%)_minmax(0,1fr)]">
-        <aside className="min-h-0 min-w-0 overflow-hidden border-b border-border/50 lg:border-b-0 lg:border-r">
+        <aside
+          aria-label="Commit history"
+          className="min-h-0 min-w-0 overflow-hidden border-b border-border/50 lg:border-b-0 lg:border-r"
+        >
           <div className="h-7 border-b border-border/40 px-3 pt-2 text-[9.5px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
             Commits
           </div>
@@ -165,7 +180,7 @@ export function GitHistoryInspector({
                     aria-pressed={selected}
                     onClick={() => onSelectCommit(entry.sha)}
                     className={cn(
-                      "absolute left-0 flex w-full cursor-pointer flex-col justify-center gap-0.5 border-l-2 border-transparent px-3 text-left transition-colors",
+                      "absolute left-0 flex w-full cursor-pointer flex-col justify-center gap-0.5 border-l-2 border-transparent px-3 text-left outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30",
                       selected
                         ? "border-l-primary bg-accent/50 font-semibold text-foreground"
                         : "hover:bg-accent/30",
@@ -197,13 +212,16 @@ export function GitHistoryInspector({
             ) : null}
           </div>
         </aside>
-        <main className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
-          <section className="min-w-0 overflow-hidden border-b border-border/50 px-4 py-3">
+        <main className="grid min-h-0 min-w-0 grid-rows-[minmax(8rem,15rem)_minmax(0,1fr)] overflow-hidden">
+          <section
+            aria-label="Commit details"
+            className="min-w-0 overflow-x-hidden overflow-y-auto border-b border-border/50 px-4 py-3"
+          >
             <div className="flex min-w-0 items-start gap-2">
               <span className="mt-0.5 shrink-0 rounded bg-muted/65 px-1.5 py-0.5 font-mono text-[10.5px] tabular-nums text-muted-foreground">
                 {commit.shortSha}
               </span>
-              <h2 className="min-w-0 flex-1 text-[13px] font-semibold leading-snug">
+              <h2 className="min-w-0 flex-1 break-words text-[13px] font-semibold leading-snug">
                 {commit.subject || "(no subject)"}
               </h2>
             </div>
@@ -213,10 +231,16 @@ export function GitHistoryInspector({
               </p>
             ) : null}
             <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10.5px] text-muted-foreground">
-              <span>{commit.author || "Unknown"}</span>
-              {commit.authorEmail ? <span>{commit.authorEmail}</span> : null}
+              <span className="min-w-0 break-words">
+                {commit.author || "Unknown"}
+              </span>
+              {commit.authorEmail ? (
+                <span className="min-w-0 break-words">
+                  {commit.authorEmail}
+                </span>
+              ) : null}
               <span>{absoluteTime(commit.timestampSecs)}</span>
-              <span className="font-mono">{commit.sha}</span>
+              <span className="min-w-0 break-all font-mono">{commit.sha}</span>
               <span>{commit.filesChanged} files</span>
               <span className="font-mono text-emerald-600 dark:text-emerald-400">
                 +{commit.insertions}
@@ -255,7 +279,10 @@ export function GitHistoryInspector({
             </div>
           </section>
           <div className="grid min-h-0 min-w-0 grid-cols-1 overflow-hidden xl:grid-cols-[240px_minmax(0,1fr)]">
-            <section className="flex min-h-0 min-w-0 flex-col overflow-hidden border-b border-border/50 xl:border-b-0 xl:border-r">
+            <section
+              aria-label="Changed files"
+              className="flex min-h-0 min-w-0 flex-col overflow-hidden border-b border-border/50 xl:border-b-0 xl:border-r"
+            >
               <div className="flex h-8 shrink-0 items-center justify-between px-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                 <span>Changed files</span>
                 {filesState.state === "loaded" ? (
@@ -293,9 +320,14 @@ export function GitHistoryInspector({
                         type="button"
                         aria-pressed={selected}
                         title={file.path}
-                        onClick={() => setSelectedPath(file.path)}
+                        onClick={() =>
+                          setSelection({
+                            commitSha: selectedSha,
+                            path: file.path,
+                          })
+                        }
                         className={cn(
-                          "flex w-full cursor-pointer items-center gap-2 border-l-2 border-transparent px-2 py-1.5 text-left text-[11px] transition-colors",
+                          "flex w-full cursor-pointer items-center gap-2 border-l-2 border-transparent px-2 py-1.5 text-left text-[11px] outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30",
                           selected
                             ? "border-l-primary bg-accent/50 font-semibold"
                             : "hover:bg-accent/30",
@@ -332,7 +364,10 @@ export function GitHistoryInspector({
                 </div>
               ) : null}
             </section>
-            <section className="min-h-0 min-w-0 overflow-hidden p-2">
+            <section
+              aria-label="Commit file diff"
+              className="min-h-0 min-w-0 overflow-hidden p-2"
+            >
               {selectedFile ? (
                 <div className="flex h-full min-h-0 flex-col gap-2">
                   <div className="flex shrink-0 items-center justify-end">
