@@ -14,7 +14,7 @@ This boundary is the root of the security model. Untrusted terminal escape seque
 ## Adding a new IPC command
 
 1. Write the `#[tauri::command]` async function in the appropriate `src-tauri/src/modules/<area>/` module.
-2. Register it in `src-tauri/src/lib.rs` inside the `tauri::generate_handler![...]` block (`src-tauri/src/lib.rs:191`).
+2. Register it in `src-tauri/src/lib.rs` inside the `tauri::generate_handler![...]` block (`src-tauri/src/lib.rs:239`).
 3. If the command uses a Tauri plugin API (window, clipboard, dialog, etc.), add the plugin permission to `src-tauri/capabilities/default.json`.
 4. Add a typed frontend wrapper in the matching `src/modules/<area>/lib/` directory and call it through Tauri's `invoke()` API.
 5. If the command touches the file system or spawns a process, validate its paths through the workspace authorization registry.
@@ -103,6 +103,16 @@ All git commands are gated through the workspace authorization registry.
 
 - `history_suggest` / `history_commands` / `history_record` / `history_list` - shell history integration
 
+### Usage / quota (`src-tauri/src/modules/usage/`)
+
+Plan-usage status for coding-agent providers, read from each CLI's own credential store.
+
+- `usage_snapshot` - cached snapshot for every connected provider. Synchronous, never touches the network.
+- `usage_refresh` / `usage_connect` - fetch one provider now. Both are `async` and hand the work to `spawn_blocking`: they read the macOS Keychain (or `~/.claude/.credentials.json`) and make up to two 10s blocking HTTP calls, so they must never run on the main thread.
+- `usage_disconnect` - drop a provider's cached snapshot. Does **not** log the CLI out.
+
+`UsageState` holds two locks on purpose. `cache` is taken only for microseconds, so `usage_snapshot` on the main thread never queues behind a fetch. `fetch` is held for the whole network round trip, serializing refreshes because Claude's refresh token is single-use and gets written back to the Claude Code CLI store; two concurrent fetches would strand the user's CLI credentials.
+
 ### Settings window
 
 - `get_launch_dir` - CLI launch directory, drained on first read
@@ -113,6 +123,8 @@ All git commands are gated through the workspace authorization registry.
 - The webview must not spawn processes or read files except through the commands above.
 - New commands must be registered in `lib.rs` and guarded through workspace authorization where they accept a cwd or path.
 - Plugin permissions must be added to `src-tauri/capabilities/default.json` if the command uses a plugin API.
+- **A command that blocks must not be a plain `fn`.** Tauri runs synchronous commands on the main thread, so any network call, subprocess, or lock held across one freezes the whole window. Make it `async fn` and move the blocking body into `tauri::async_runtime::spawn_blocking` (see `git/commands.rs`, `lsp/mod.rs`, `usage/mod.rs`). Getting off the main thread also means calls can now overlap, so shared mutable state needs its own serialization.
+- Never hold a lock that a main-thread command also takes across a network call or subprocess. Split the state into a fast lock for reads and a separate lock for the slow work.
 
 ## See also
 

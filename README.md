@@ -83,10 +83,22 @@ Pide is a lightweight open-source terminal workspace built on Tauri 2 + Rust and
 - Detects supported coding-agent CLIs running in terminal sessions
 - Tab status badges and attention notifications
 - Optional hooks for Claude Code, Codex, and Gemini CLI
+- Plan usage in the status bar for Claude and Codex, read from the CLI's own credentials. Nothing is sent anywhere; the app talks to the provider directly and caches the result.
 
 ## Install
 
 Latest installers are on the [Releases](https://github.com/pirayan20/pide/releases/latest) page. Pide auto-updates from there.
+
+### macOS notes
+
+- Pick the build that matches your Mac: `aarch64` for Apple Silicon (M1 and later), `x64` for Intel.
+- Pide is not yet notarized by Apple, so the first launch is blocked. macOS reports this as **"Pide is damaged and can't be opened"**, which is misleading: it means unnotarized, not corrupt. Clear the download quarantine flag once:
+
+  ```sh
+  xattr -dr com.apple.quarantine /Applications/Pide.app
+  ```
+
+  Then open it normally. Alternatively, open **System Settings > Privacy & Security**, scroll to the blocked-app notice, and choose **Open Anyway**.
 
 ### Windows notes
 
@@ -96,7 +108,6 @@ Latest installers are on the [Releases](https://github.com/pirayan20/pide/releas
 
 ### Linux notes
 
-- **Arch / AUR:** `yay -S pide-bin` (or `paru`, etc.). Tracks the latest release.
 - **NixOS / Nix**: use the official flake - `nix profile install github:pirayan20/pide` (non-NixOS), or import the flake and add `inputs.pide.packages.${pkgs.system}.pide` to `environment.systemPackages` (NixOS). The `nixosModules.pide` output is also available for a simpler setup.
 - **AppImage:** needs FUSE. Without it: `./Pide_*.AppImage --appimage-extract-and-run`. On Wayland with rendering glitches, try `WEBKIT_DISABLE_DMABUF_RENDERER=1`. Otherwise the `.deb` / `.rpm` packages link against the system GTK stack and tend to be smoother.
 
