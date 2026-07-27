@@ -6,7 +6,7 @@ Pide loads `PIDE.md` from the workspace root as agent memory (similar to AGENTS.
 
 **Pide**: open-source terminal-first development workspace. Tauri 2 + Rust (`portable-pty`) backend, React 19 + TypeScript + xterm.js (WebGL) client, with coding-agent CLI status integration.
 
-- Bundle id: `app.crynta.pide`
+- Bundle id: `app.pirayan.pide`
 - Package manager: **pnpm**
 - Platforms: macOS, Linux, Windows
 - Frontend checks: `pnpm lint`, `pnpm check-types`, `pnpm test`
@@ -130,7 +130,7 @@ Each module is self-contained, exports a thin barrel via `index.ts`, and owns it
   - **macOS**: `minimumSystemVersion: 10.15`.
   - **Linux**: deb depends `libwebkit2gtk-4.1-0`, `libgtk-3-0`; rpm `webkit2gtk4.1`, `gtk3`; AppImage bundles its media framework.
   - **Windows**: NSIS installer in `currentUser` mode (no admin required), WebView2 via `embedBootstrapper` (offline install).
-- Auto-updater configured with a public minisign key; release artifacts at `https://github.com/crynta/pide-ai/releases/latest/download/latest.json`.
+- Auto-updater configured with a public minisign key; release artifacts at `https://github.com/pirayan20/pide/releases/latest/download/latest.json`.
 
 ### Known gotchas
 

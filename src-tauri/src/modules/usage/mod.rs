@@ -56,6 +56,7 @@ pub fn next_backoff_ms(failures: u32) -> i64 {
 
 use std::collections::HashMap;
 use std::sync::Mutex;
+use tauri::Manager;
 
 pub struct Cached {
     pub usage: ProviderUsage,
@@ -65,7 +66,17 @@ pub struct Cached {
 }
 
 #[derive(Default)]
-pub struct UsageState(pub Mutex<HashMap<String, Cached>>);
+pub struct UsageState {
+    /// Snapshot cache. Only ever locked for microseconds, so `usage_snapshot`
+    /// on the main thread never waits behind a network fetch.
+    pub cache: Mutex<HashMap<String, Cached>>,
+    /// Held for the whole fetch. Claude's refresh token is single-use and gets
+    /// written back to the Claude Code CLI store, so two concurrent fetches
+    /// would race and could strand the user's CLI credentials.
+    // ponytail: one global fetch lock; make it per-provider if a slow provider
+    // ever starves the other.
+    fetch: Mutex<()>,
+}
 
 pub fn fetch_allowed(now_ms: i64, next_allowed_at: i64) -> bool {
     now_ms >= next_allowed_at
@@ -94,19 +105,30 @@ fn fetch_provider(provider: &str) -> ProviderUsage {
 }
 
 fn do_refresh(state: &UsageState, provider: &str) -> ProviderUsage {
+    do_refresh_with(state, provider, fetch_provider)
+}
+
+/// Blocking: shells out to the keychain and makes up to two 10s HTTP calls.
+/// Callers must keep this off the main thread.
+fn do_refresh_with(
+    state: &UsageState,
+    provider: &str,
+    fetch: impl FnOnce(&str) -> ProviderUsage,
+) -> ProviderUsage {
+    let _fetching = state.fetch.lock().unwrap_or_else(|e| e.into_inner());
     let now = now_ms();
     {
         // Respect backoff: return cached snapshot without hitting the network.
-        let map = state.0.lock().unwrap();
+        let map = state.cache.lock().unwrap();
         if let Some(c) = map.get(provider) {
             if !fetch_allowed(now, c.next_allowed_at) {
                 return c.usage.clone();
             }
         }
     }
-    let usage = fetch_provider(provider);
+    let usage = fetch(provider);
     let failed = matches!(usage.status, UsageStatus::Unavailable);
-    let mut map = state.0.lock().unwrap();
+    let mut map = state.cache.lock().unwrap();
     let entry = map.entry(provider.to_string()).or_insert(Cached {
         usage: usage.clone(),
         connected: true,
@@ -128,7 +150,7 @@ fn do_refresh(state: &UsageState, provider: &str) -> ProviderUsage {
 #[tauri::command]
 pub fn usage_snapshot(state: tauri::State<UsageState>) -> Vec<ProviderUsage> {
     state
-        .0
+        .cache
         .lock()
         .unwrap()
         .values()
@@ -137,26 +159,47 @@ pub fn usage_snapshot(state: tauri::State<UsageState>) -> Vec<ProviderUsage> {
         .collect()
 }
 
-#[tauri::command]
-pub fn usage_refresh(provider: String, state: tauri::State<UsageState>) -> ProviderUsage {
-    do_refresh(&state, &provider)
+/// Runs the fetch on the blocking pool. As a plain sync command this sat on the
+/// main thread and froze the whole window for the duration of the HTTP calls.
+async fn refresh_off_thread(
+    app: tauri::AppHandle,
+    provider: String,
+    reconnect: bool,
+) -> Result<ProviderUsage, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<UsageState>();
+        if reconnect {
+            let mut map = state.cache.lock().unwrap();
+            if let Some(c) = map.get_mut(&provider) {
+                c.connected = true;
+                c.next_allowed_at = 0; // allow an immediate fetch on explicit connect
+            }
+        }
+        do_refresh(&state, &provider)
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn usage_connect(provider: String, state: tauri::State<UsageState>) -> ProviderUsage {
-    {
-        let mut map = state.0.lock().unwrap();
-        if let Some(c) = map.get_mut(&provider) {
-            c.connected = true;
-            c.next_allowed_at = 0; // allow an immediate fetch on explicit connect
-        }
-    }
-    do_refresh(&state, &provider)
+pub async fn usage_refresh(
+    provider: String,
+    app: tauri::AppHandle,
+) -> Result<ProviderUsage, String> {
+    refresh_off_thread(app, provider, false).await
+}
+
+#[tauri::command]
+pub async fn usage_connect(
+    provider: String,
+    app: tauri::AppHandle,
+) -> Result<ProviderUsage, String> {
+    refresh_off_thread(app, provider, true).await
 }
 
 #[tauri::command]
 pub fn usage_disconnect(provider: String, state: tauri::State<UsageState>) {
-    state.0.lock().unwrap().remove(&provider);
+    state.cache.lock().unwrap().remove(&provider);
 }
 
 #[cfg(test)]
@@ -195,6 +238,25 @@ mod tests {
         assert_eq!(next_backoff_ms(4), 960_000);
         assert_eq!(next_backoff_ms(5), 1_800_000); // capped
         assert_eq!(next_backoff_ms(9), 1_800_000); // stays capped
+    }
+
+    /// Regression guard for the periodic UI freeze: `usage_snapshot` runs on the
+    /// main thread, so the cache lock must be free while the fetch is in flight.
+    #[test]
+    fn refresh_leaves_cache_unlocked_during_fetch() {
+        let state = UsageState::default();
+        do_refresh_with(&state, "claude", |p| {
+            assert!(state.cache.try_lock().is_ok(), "cache locked across fetch");
+            ProviderUsage {
+                provider: p.into(),
+                status: UsageStatus::Ok,
+                account: None,
+                plan: None,
+                windows: vec![w("5h", 1.0)],
+                fetched_at: 0,
+            }
+        });
+        assert_eq!(state.cache.lock().unwrap().len(), 1);
     }
 
     #[test]

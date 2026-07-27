@@ -4,7 +4,7 @@ Pide runs shells, reads and writes files, launches language servers, and interpr
 
 ## Reporting
 
-Email **security@pide.app** with:
+Email **pirayan20@gmail.com** with:
 
 - What the issue is and what it allows
 - Reproduction steps or a small proof of concept

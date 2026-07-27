@@ -42,7 +42,7 @@ jobs:
           VERSION: ${{ steps.tag.outputs.version }}
         run: |
           gh release download "$TAG" \
-            --repo crynta/pide-ai \
+            --repo pirayan20/pide \
             --pattern "Pide_${VERSION}_amd64.deb" \
             --pattern "Pide_x64.app.tar.gz" \
             --pattern "Pide_aarch64.app.tar.gz"
