@@ -5,18 +5,18 @@
   <p><strong>Lightweight terminal-first dev workspace.</strong></p>
 
   <p>
-    <img src="https://img.shields.io/github/v/release/crynta/pide-ai?label=version&color=blue" alt="version" />
-    <img src="https://img.shields.io/github/downloads/crynta/pide-ai/total?label=downloads&color=blue" alt="downloads" />
+    <img src="https://img.shields.io/github/v/release/pirayan20/pide?label=version&color=blue" alt="version" />
+    <img src="https://img.shields.io/github/downloads/pirayan20/pide/total?label=downloads&color=blue" alt="downloads" />
     <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey" alt="platform" />
-    <a href="https://discord.gg/tyveTUyEp7"><img src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
+    <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="license" />
   </p>
 
   <p>
-    <a href="https://pide.app">Website</a>
+    <a href="https://github.com/pirayan20/pide/releases/latest">Download</a>
     ·
-    <a href="https://pide.app/docs">Docs</a>
+    <a href="docs/README.md">Docs</a>
     ·
-    <a href="https://github.com/crynta/Pide-website">Website's source code</a>
+    <a href="https://github.com/pirayan20/pide/issues">Issues</a>
   </p>
 </div>
 
@@ -86,7 +86,7 @@ Pide is a lightweight open-source terminal workspace built on Tauri 2 + Rust and
 
 ## Install
 
-Latest installers are on the [Releases](https://github.com/crynta/pide-ai/releases/latest) page. Pide auto-updates from there.
+Latest installers are on the [Releases](https://github.com/pirayan20/pide/releases/latest) page. Pide auto-updates from there.
 
 ### Windows notes
 
@@ -97,7 +97,7 @@ Latest installers are on the [Releases](https://github.com/crynta/pide-ai/releas
 ### Linux notes
 
 - **Arch / AUR:** `yay -S pide-bin` (or `paru`, etc.). Tracks the latest release.
-- **NixOS / Nix**: use the official flake - `nix profile install github:crynta/pide-ai` (non-NixOS), or import the flake and add `inputs.pide.packages.${pkgs.system}.pide` to `environment.systemPackages` (NixOS). The `nixosModules.pide` output is also available for a simpler setup.
+- **NixOS / Nix**: use the official flake - `nix profile install github:pirayan20/pide` (non-NixOS), or import the flake and add `inputs.pide.packages.${pkgs.system}.pide` to `environment.systemPackages` (NixOS). The `nixosModules.pide` output is also available for a simpler setup.
 - **AppImage:** needs FUSE. Without it: `./Pide_*.AppImage --appimage-extract-and-run`. On Wayland with rendering glitches, try `WEBKIT_DISABLE_DMABUF_RENDERER=1`. Otherwise the `.deb` / `.rpm` packages link against the system GTK stack and tend to be smoother.
 
 ## Build from source
@@ -135,14 +135,16 @@ Issues and PRs are welcome! Feel free to open issues, suggest features, or submi
 
 Pide is licensed under the Apache-2.0 License. For more information on our dependencies, see [Apache License 2.0](LICENSE).
 
+Pide began as a fork of [Terax](https://github.com/crynta/terax-ai) by Crynta, also Apache-2.0. See [NOTICE](NOTICE).
+
 ## Star history
 
 <div align="center">
-  <a href="https://www.star-history.com/#crynta/pide-ai&Date">
+  <a href="https://www.star-history.com/#pirayan20/pide&Date">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=crynta/pide-ai&type=Date&theme=dark" />
-      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=crynta/pide-ai&type=Date" />
-      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=crynta/pide-ai&type=Date" />
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=pirayan20/pide&type=Date&theme=dark" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=pirayan20/pide&type=Date" />
+      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=pirayan20/pide&type=Date" />
     </picture>
   </a>
 </div>

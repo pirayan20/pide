@@ -6,7 +6,7 @@ This document helps you decide *whether* and *how* to contribute in a way that's
 
 ## How this project is run
 
-- Pide has one active maintainer ([@crynta](https://github.com/crynta)).
+- Pide has one active maintainer ([@pirayan20](https://github.com/pirayan20)).
 - Review bandwidth is limited.
 - Not every contribution can be accepted, even if it's technically correct. Alignment with project direction matters as much as code quality.
 - For scope and direction, see [ROADMAP.md](ROADMAP.md). Read it before opening anything non-trivial.
@@ -26,9 +26,9 @@ For the architecture and how to contribute safely, see [PIDE.md](PIDE.md) and th
 
 ## Where to discuss
 
-Discord: [Crynta OS](https://discord.gg/tyveTUyEp7)
+[GitHub Discussions](https://github.com/pirayan20/pide/discussions)
 
-Use Discord for design discussion, scope questions, "should I work on X?", quick feedback. Use GitHub Issues for tracking concrete bugs and features.
+Use Discussions for design discussion, scope questions, "should I work on X?", quick feedback. Use GitHub Issues for tracking concrete bugs and features.
 
 ## What makes a good contribution
 

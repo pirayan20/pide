@@ -7,7 +7,7 @@ import { IS_LINUX } from "@/lib/platform";
 const LAST_CHECK_KEY = "pide:updater:last-check";
 const CHECK_INTERVAL_MS = 30 * 60 * 1000;
 const GITHUB_LATEST_RELEASE =
-  "https://api.github.com/repos/crynta/pide-ai/releases/latest";
+  "https://api.github.com/repos/pirayan20/pide/releases/latest";
 
 export interface ManualUpdateInfo {
   version: string;

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Pide",
-  "version": "0.8.5",
-  "identifier": "app.crynta.pide",
+  "version": "0.9.0",
+  "identifier": "app.pirayan.pide",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -36,9 +36,9 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
-    "copyright": "Copyright 2026 Crynta",
+    "copyright": "Copyright 2026 Pirayan",
     "license": "Apache-2.0",
-    "publisher": "Crynta",
+    "publisher": "Pirayan",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -106,9 +106,9 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNCQUJGRDhBQjYwRTM0NjkKUldScE5BNjJpdjJyT3dIN0dqbUpHaDA4QW1GaDVmTTllRXdZVk96dFNTRUZ3Y2hiVGszYjFqRloK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQzRTQzRTI1QjM4NUJDMTUKUldRVnZJV3pKVDdrMHdRaFplSlY3ekFSUTc0QzZheU5EVk1IcXk1YVdGNUV3OWJlb0hjWFBIOSsK",
       "endpoints": [
-        "https://github.com/crynta/pide-ai/releases/latest/download/latest.json"
+        "https://github.com/pirayan20/pide/releases/latest/download/latest.json"
       ]
     }
   }
