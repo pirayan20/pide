@@ -2,7 +2,7 @@
   <img src="public/logo.png" width="144" height="144" alt="Pide" />
   <h1>Pide</h1>
 
-  <p><strong>Lightweight terminal-first dev workspace.</strong></p>
+  <p><strong>Lightweight terminal-first dev workspace, built on <a href="https://github.com/crynta/terax-ai">Terax</a>.</strong></p>
 
   <p>
     <img src="https://img.shields.io/github/v/release/pirayan20/pide?label=version&color=blue" alt="version" />
@@ -24,18 +24,26 @@
 
 Pide is a lightweight open-source terminal workspace built on Tauri 2 + Rust and React 19. It combines a native PTY backend and WebGL renderer with a code editor, file explorer, source control, Git graph, web preview, and status integration for coding-agent CLIs. About 7-8 MB on disk. No telemetry. No account.
 
-## Screenshots
+## How it relates to Terax
 
-<table>
-  <tr>
-    <td align="center"><img src="docs/terminal.png" alt="Terminal" /><br/><sub>Multi-tab terminal with WebGL rendering</sub></td>
-    <td align="center"><img src="docs/themes.png" alt="Themes and background image" /><br/><sub>Custom themes, presets, and background images</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/web-preview.png" alt="Web preview" /><br/><sub>Web preview of local dev servers</sub></td>
-    <td align="center"><img src="docs/source-control.png" alt="Source control and git graph" /><br/><sub>Source control panel with git graph in history</sub></td>
-  </tr>
-</table>
+[Terax](https://github.com/crynta/terax-ai) by Crynta is the base: the Tauri 2 shell, the PTY backend, the WebGL terminal, the CodeMirror editor, the theme engine, and the workspace security model. Pide is a fork, not a plugin, so the whole thing is one codebase rather than a dependency.
+
+Pide is **Terax minus the built-in AI chat, plus provider quota tracking, a source-control panel that replaces GitHub Desktop, richer file previews, and Python interpreter selection.**
+
+What the fork adds:
+
+- **Plan usage in the status bar** - live quota for Claude and Codex with its own OAuth (PKCE, loopback callback, tokens in the OS keychain) and a Settings > Accounts panel, rather than borrowing the CLIs' credentials. Shows the most constrained window, warns as you approach the cap, and backs off when a provider is failing.
+- **Source control as a GitHub Desktop replacement** - publish a branch, open the GitHub PR form with the compare URL derived from the real tracking remote, and inspect any commit inline: full message, changed files, and lazy read-only diffs, in a resizable pane over the commit graph.
+- **Rich file previews** - Jupyter notebooks, CSV with an RFC-4180 parser, Mermaid diagrams, SVG and HTML, plus zoom, pan, and fit for images and diagrams.
+- **Python interpreter selection** - discovers interpreters, remembers one per project, feeds it to pyright over `workspace/configuration`, and exposes it in the command palette.
+- **Inline Git change markers** in the editor gutter, against both HEAD and the index.
+- **Wider coding-agent support** - Pi alongside Claude Code, Codex, and Gemini CLI, with agent-aware tab icons, per-PTY agent tracking, OSC window titles, and error notifications.
+- **Project hierarchy (Spaces)** - ordered spaces and projects that pin the explorer, source control, and new terminals.
+- **No built-in AI chat.** Terax bundles one; Pide removes it. The terminal is where the agent lives, so the editor stays a terminal workspace instead of a second chat window.
+
+Fixed in the fork: the UI froze for up to ~40s every 5 minutes because the quota poll ran synchronously on the main thread, where Tauri runs non-async commands.
+
+Pide tracks Terax for upstream fixes. Everything here is Apache-2.0, same as the original. See [NOTICE](NOTICE).
 
 ## Features
 
