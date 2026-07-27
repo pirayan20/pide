@@ -1,5 +1,13 @@
 import type { GitStatusSnapshot } from "@/lib/native";
 
+export function canOfferPublishBranch(
+  hasRepo: boolean,
+  status: GitStatusSnapshot | null,
+): boolean {
+  if (!hasRepo || !status) return false;
+  return !!status.branch && !status.isDetached && !status.upstream;
+}
+
 export function canOfferCreatePullRequest(
   hasRepo: boolean,
   status: GitStatusSnapshot | null,

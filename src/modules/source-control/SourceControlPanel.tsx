@@ -101,7 +101,10 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { canOfferCreatePullRequest } from "@/modules/source-control/lib/pullRequestAction";
+import {
+  canOfferCreatePullRequest,
+  canOfferPublishBranch,
+} from "@/modules/source-control/lib/pullRequestAction";
 import { usePullRequestUrl } from "@/modules/source-control/lib/usePullRequestUrl";
 import type {
   SourceControlRemoteAction,
@@ -1313,6 +1316,11 @@ export const SourceControlPanel = memo(function SourceControlPanel({
   const pushStatusLabel = upstreamBadgeLabel(scm.status?.upstream);
   const isDiverged =
     !!scm.status && scm.status.ahead > 0 && scm.status.behind > 0;
+  const [publishing, setPublishing] = useState(false);
+  const canPublishBranch = canOfferPublishBranch(
+    sourceControl.hasRepo,
+    scm.status,
+  );
   const createPullRequestEligible = canOfferCreatePullRequest(
     sourceControl.hasRepo,
     scm.status,
@@ -1365,6 +1373,24 @@ export const SourceControlPanel = memo(function SourceControlPanel({
       toast.error(`Could not open GitHub: ${String(error)}`);
     });
   }, [pullRequestUrl]);
+
+  const handlePublishBranch = useCallback(() => {
+    const repoRoot = scm.repo?.repoRoot;
+    if (!repoRoot || publishing) return;
+    setPublishing(true);
+    void native
+      .gitPush(repoRoot)
+      .then((result) => {
+        toast.success(
+          result.remote && result.branch
+            ? `Published ${result.branch} to ${result.remote}.`
+            : "Branch published.",
+        );
+        handleRefresh();
+      })
+      .catch((error) => toast.error(String(error)))
+      .finally(() => setPublishing(false));
+  }, [handleRefresh, publishing, scm.repo?.repoRoot]);
 
   const rows = useMemo<RowDescriptor[]>(() => {
     const result: RowDescriptor[] = [];
@@ -1598,7 +1624,19 @@ export const SourceControlPanel = memo(function SourceControlPanel({
           </div>
         </header>
 
-        {pullRequestUrl ? (
+        {canPublishBranch ? (
+          <div className="shrink-0 border-b border-border/40 px-3 py-2">
+            <Button
+              size="sm"
+              disabled={publishing || !!scm.actionBusy}
+              onClick={handlePublishBranch}
+              className="w-full cursor-pointer text-[11px] font-semibold"
+            >
+              {publishing ? <Spinner className="size-3" /> : null}
+              Publish Branch
+            </Button>
+          </div>
+        ) : pullRequestUrl ? (
           <div className="shrink-0 border-b border-border/40 px-3 py-2">
             <Button
               size="sm"

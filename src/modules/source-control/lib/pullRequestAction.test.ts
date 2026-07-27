@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { GitStatusSnapshot } from "@/lib/native";
-import { canOfferCreatePullRequest } from "@/modules/source-control/lib/pullRequestAction";
+import {
+  canOfferCreatePullRequest,
+  canOfferPublishBranch,
+} from "@/modules/source-control/lib/pullRequestAction";
 
 const eligibleStatus: GitStatusSnapshot = {
   repoRoot: "/repo",
@@ -69,6 +72,57 @@ describe("canOfferCreatePullRequest", () => {
   it("rejects commits behind upstream", () => {
     expect(
       canOfferCreatePullRequest(true, { ...eligibleStatus, behind: 1 }),
+    ).toBe(false);
+  });
+});
+
+describe("canOfferPublishBranch", () => {
+  const unpublishedStatus: GitStatusSnapshot = {
+    ...eligibleStatus,
+    upstream: null,
+  };
+
+  it("accepts an attached branch without an upstream", () => {
+    expect(canOfferPublishBranch(true, unpublishedStatus)).toBe(true);
+  });
+
+  it("accepts uncommitted changes on an unpublished branch", () => {
+    expect(
+      canOfferPublishBranch(true, {
+        ...unpublishedStatus,
+        changedFiles: [
+          {
+            path: "src/index.ts",
+            originalPath: null,
+            indexStatus: " ",
+            worktreeStatus: "M",
+            staged: false,
+            unstaged: true,
+            untracked: false,
+            statusLabel: "Modified",
+          },
+        ],
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects a branch that already has an upstream", () => {
+    expect(canOfferPublishBranch(true, eligibleStatus)).toBe(false);
+  });
+
+  it("rejects a missing repository", () => {
+    expect(canOfferPublishBranch(false, unpublishedStatus)).toBe(false);
+  });
+
+  it("rejects a detached HEAD", () => {
+    expect(
+      canOfferPublishBranch(true, { ...unpublishedStatus, isDetached: true }),
+    ).toBe(false);
+  });
+
+  it("rejects an empty branch", () => {
+    expect(
+      canOfferPublishBranch(true, { ...unpublishedStatus, branch: "" }),
     ).toBe(false);
   });
 });

@@ -542,25 +542,62 @@ pub fn push(
         &repo_root.git_path,
         ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
     )?;
-    if upstream.is_none() {
-        return Err(GitError::NoUpstream);
-    }
 
-    let output = run_git(
-        &repo_root.workspace,
-        Some(&repo_root.git_path),
-        ["push"],
-        NETWORK_TIMEOUT_SECS,
-    )?;
+    let output = match &upstream {
+        Some(_) => run_git(
+            &repo_root.workspace,
+            Some(&repo_root.git_path),
+            ["push"],
+            NETWORK_TIMEOUT_SECS,
+        )?,
+        None => {
+            // Never-published branch: publish it and set the upstream in one
+            // step so the next push is a plain `git push`.
+            let remotes = git_stdout_lines(
+                &repo_root.workspace,
+                &repo_root.git_path,
+                ["remote"],
+            )?;
+            let remote = pick_publish_remote(&remotes)
+                .ok_or(GitError::command("git push", "no remotes configured"))?;
+            run_git(
+                &repo_root.workspace,
+                Some(&repo_root.git_path),
+                [
+                    OsStr::new("push"),
+                    OsStr::new("--set-upstream"),
+                    OsStr::new(remote),
+                    OsStr::new("HEAD"),
+                ],
+                NETWORK_TIMEOUT_SECS,
+            )?
+        }
+    };
     ensure_success(&output, "git push failed")?;
 
-    let upstream = upstream.unwrap();
+    let upstream = match upstream {
+        Some(u) => u,
+        None => git_stdout_line_opt(
+            &repo_root.workspace,
+            &repo_root.git_path,
+            ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+        )?
+        .ok_or(GitError::NoUpstream)?,
+    };
     let (remote, branch) = split_upstream(&upstream);
     Ok(GitPushResult {
         remote,
         branch,
         pushed: true,
     })
+}
+
+fn pick_publish_remote(remotes: &[String]) -> Option<&str> {
+    remotes
+        .iter()
+        .find(|r| r.as_str() == "origin")
+        .or_else(|| remotes.first())
+        .map(|r| r.as_str())
 }
 
 const LOG_FORMAT: &str = "%x00%H%x00%an%x00%ae%x00%at%x00%P%x00%s%x00%b%x00";
@@ -1680,6 +1717,15 @@ pub fn stash_drop(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pick_publish_remote_prefers_origin() {
+        let remotes = vec!["upstream".to_string(), "origin".to_string()];
+        assert_eq!(pick_publish_remote(&remotes), Some("origin"));
+        let remotes = vec!["fork".to_string()];
+        assert_eq!(pick_publish_remote(&remotes), Some("fork"));
+        assert_eq!(pick_publish_remote(&[]), None);
+    }
 
     #[test]
     fn sha_is_safe_accepts_hex() {
