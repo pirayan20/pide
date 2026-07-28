@@ -10,7 +10,7 @@ import { native } from "@/lib/native";
 import { IS_WINDOWS } from "@/lib/platform";
 import { quoteShellArg } from "@/lib/shellQuote";
 import { useZoom } from "@/lib/useZoom";
-import { previewRendererFor } from "@/lib/utils";
+import { cn, previewRendererFor } from "@/lib/utils";
 import {
   AgentNotificationsBridge,
   nextAttentionTarget,
@@ -47,6 +47,7 @@ import {
 import {
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
+  sidebarLayoutOrder,
   SidebarRail,
   useSidebarPanel,
 } from "@/modules/sidebar";
@@ -655,6 +656,7 @@ export default function App() {
   const explorerGitDecorations = usePreferencesStore(
     (s) => s.explorerGitDecorations,
   );
+  const sidebarPosition = usePreferencesStore((s) => s.sidebarPosition);
 
   const openPreviewTab = useCallback(
     (url: string) => {
@@ -1304,6 +1306,62 @@ export default function App() {
     [isTerminalTab, activeLeafId],
   );
 
+  const sidebarPanel = (
+    <ResizablePanel
+      key="sidebar"
+      id="sidebar"
+      panelRef={sidebarRef}
+      defaultSize={
+        initialSidebarCollapsed ? "0px" : `${sidebarWidthRef.current}px`
+      }
+      minSize={`${SIDEBAR_MIN_WIDTH}px`}
+      maxSize={`${SIDEBAR_MAX_WIDTH}px`}
+      collapsible
+      collapsedSize={0}
+      onResize={(size) => {
+        if (size.inPixels > 0) persistSidebarWidth(size.inPixels);
+        persistSidebarCollapsed(size.inPixels <= 0);
+      }}
+    >
+      <div
+        className={cn(
+          "flex h-full min-h-0 flex-col border-border/60 bg-card",
+          sidebarPosition === "left" ? "border-r" : "border-l",
+        )}
+      >
+        <div key={sidebarView} className="min-h-0 flex-1 pide-panel-in">
+          {sidebarView === "explorer" ? (
+            <FileExplorer
+              ref={explorerRef}
+              rootPath={explorerRoot}
+              gitStatus={explorerGitDecorations ? sourceControl.status : null}
+              activeFilePath={explorerActiveFilePath}
+              onOpenFile={handleOpenFile}
+              onPathRenamed={handlePathRenamed}
+              onPathDeleted={handlePathDeleted}
+              onRevealInTerminal={cdInNewTab}
+            />
+          ) : (
+            <SourceControlPanel
+              open
+              sourceControl={sourceControl}
+              onOpenDiff={openGitDiffTab}
+              onOpenGitGraph={openGitGraphFromContext}
+              onOpenFile={handleOpenFile}
+              onNavigateToPath={cdInNewTab}
+            />
+          )}
+        </div>
+        <SidebarRail
+          activeView={sidebarView}
+          onSelectView={persistSidebarView}
+          changedCount={sourceControl.changedCount}
+        />
+      </div>
+    </ResizablePanel>
+  );
+  const sidebarOnLeft = sidebarLayoutOrder(sidebarPosition)[0] === "sidebar";
+
   const shell = (
     <ThemeProvider>
       <TooltipProvider>
@@ -1340,61 +1398,14 @@ export default function App() {
               orientation="horizontal"
               className="min-h-0 flex-1"
             >
+              {sidebarOnLeft && sidebarPanel}
+              {sidebarOnLeft && <ResizableHandle key="handle" withHandle />}
               <ResizablePanel
-                id="sidebar"
-                panelRef={sidebarRef}
-                defaultSize={
-                  initialSidebarCollapsed
-                    ? "0px"
-                    : `${sidebarWidthRef.current}px`
-                }
-                minSize={`${SIDEBAR_MIN_WIDTH}px`}
-                maxSize={`${SIDEBAR_MAX_WIDTH}px`}
-                collapsible
-                collapsedSize={0}
-                onResize={(size) => {
-                  if (size.inPixels > 0) persistSidebarWidth(size.inPixels);
-                  persistSidebarCollapsed(size.inPixels <= 0);
-                }}
+                key="workspace"
+                id="workspace"
+                defaultSize="78%"
+                minSize="30%"
               >
-                <div className="flex h-full min-h-0 flex-col border-r border-border/60 bg-card">
-                  <div
-                    key={sidebarView}
-                    className="min-h-0 flex-1 pide-panel-in"
-                  >
-                    {sidebarView === "explorer" ? (
-                      <FileExplorer
-                        ref={explorerRef}
-                        rootPath={explorerRoot}
-                        gitStatus={
-                          explorerGitDecorations ? sourceControl.status : null
-                        }
-                        activeFilePath={explorerActiveFilePath}
-                        onOpenFile={handleOpenFile}
-                        onPathRenamed={handlePathRenamed}
-                        onPathDeleted={handlePathDeleted}
-                        onRevealInTerminal={cdInNewTab}
-                      />
-                    ) : (
-                      <SourceControlPanel
-                        open
-                        sourceControl={sourceControl}
-                        onOpenDiff={openGitDiffTab}
-                        onOpenGitGraph={openGitGraphFromContext}
-                        onOpenFile={handleOpenFile}
-                        onNavigateToPath={cdInNewTab}
-                      />
-                    )}
-                  </div>
-                  <SidebarRail
-                    activeView={sidebarView}
-                    onSelectView={persistSidebarView}
-                    changedCount={sourceControl.changedCount}
-                  />
-                </div>
-              </ResizablePanel>
-              <ResizableHandle withHandle />
-              <ResizablePanel id="workspace" defaultSize="78%" minSize="30%">
                 <div className="flex h-full min-h-0 flex-col">
                   <div className="relative min-h-0 flex-1">
                     <WorkspaceSurface
@@ -1442,6 +1453,8 @@ export default function App() {
                   />
                 </div>
               </ResizablePanel>
+              {!sidebarOnLeft && <ResizableHandle key="handle" withHandle />}
+              {!sidebarOnLeft && sidebarPanel}
             </ResizablePanelGroup>
           </main>
 
