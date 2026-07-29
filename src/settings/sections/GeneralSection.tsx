@@ -23,6 +23,7 @@ import {
   setExplorerGitDecorations,
   setRestoreWindowState,
   setShowHidden,
+  setSidebarPosition,
   setTerminalCursorBlink,
   setTerminalFontFamily,
   setTerminalFontSize,
@@ -81,6 +82,7 @@ export function GeneralSection() {
   const explorerGitDecorations = usePreferencesStore(
     (s) => s.explorerGitDecorations,
   );
+  const sidebarPosition = usePreferencesStore((s) => s.sidebarPosition);
   const terminalWebglEnabled = usePreferencesStore(
     (s) => s.terminalWebglEnabled,
   );
@@ -185,6 +187,36 @@ export function GeneralSection() {
             onValueChange={(v) => void setZoomLevel(v[0] ?? 1)}
           />
         </div>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label>Layout</Label>
+        <SettingRow
+          title="Sidebar position"
+          description="Place the primary sidebar on the left or right of the workspace."
+        >
+          <Select
+            value={sidebarPosition}
+            onValueChange={(v) =>
+              void setSidebarPosition(v === "right" ? "right" : "left")
+            }
+          >
+            <SelectTrigger
+              value={sidebarPosition}
+              className="h-8 w-28 text-[12px]"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="left" className="text-[12px]">
+                Left
+              </SelectItem>
+              <SelectItem value="right" className="text-[12px]">
+                Right
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </SettingRow>
       </div>
 
       <div className="flex flex-col gap-2">
