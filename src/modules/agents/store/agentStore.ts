@@ -12,8 +12,14 @@ let notifSeq = 0;
 type AgentStoreState = {
   sessions: Record<number, AgentSession>;
   notifications: AgentNotification[];
-  start: (leafId: number, tabId: number, agent: string) => void;
+  start: (
+    leafId: number,
+    tabId: number,
+    agent: string,
+    context?: string | null,
+  ) => void;
   setStatus: (leafId: number, status: AgentStatus) => void;
+  markHookDriven: (leafId: number) => void;
   finish: (leafId: number) => void;
   pushNotification: (n: Omit<AgentNotification, "id" | "at" | "read">) => void;
   markAllRead: () => void;
@@ -24,7 +30,7 @@ export const useAgentStore = create<AgentStoreState>((set) => ({
   sessions: {},
   notifications: [],
 
-  start: (leafId, tabId, agent) =>
+  start: (leafId, tabId, agent, context = null) =>
     set((s) => {
       const now = Date.now();
       return {
@@ -38,6 +44,8 @@ export const useAgentStore = create<AgentStoreState>((set) => ({
             startedAt: now,
             lastActivityAt: now,
             attentionSince: null,
+            hookDriven: false,
+            context,
           },
         },
       };
@@ -61,12 +69,26 @@ export const useAgentStore = create<AgentStoreState>((set) => ({
       };
     }),
 
+  markHookDriven: (leafId) =>
+    set((s) => {
+      const prev = s.sessions[leafId];
+      if (!prev || prev.hookDriven) return s;
+      return {
+        sessions: { ...s.sessions, [leafId]: { ...prev, hookDriven: true } },
+      };
+    }),
+
+  // A closed agent takes its notifications with it: stale "finished" entries
+  // for a session the user already dismissed only add noise.
   finish: (leafId) =>
     set((s) => {
-      if (!s.sessions[leafId]) return s;
+      const remaining = s.notifications.filter((n) => n.leafId !== leafId);
+      if (!s.sessions[leafId] && remaining.length === s.notifications.length) {
+        return s;
+      }
       const next = { ...s.sessions };
       delete next[leafId];
-      return { sessions: next };
+      return { sessions: next, notifications: remaining };
     }),
 
   pushNotification: (n) =>

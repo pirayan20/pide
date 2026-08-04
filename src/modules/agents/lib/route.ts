@@ -10,6 +10,8 @@ type RouteArgs = {
   kind: NotificationKind;
   title: string;
   body?: string;
+  /** "Space/Project" of the owning tab, shown in the bell list. */
+  context?: string | null;
   focused: boolean;
   /** True when the user is currently looking at this agent. */
   visible: boolean;
@@ -26,6 +28,7 @@ export function routeAgentNotification({
   kind,
   title,
   body,
+  context = null,
   focused,
   visible,
   allowToast,
@@ -36,7 +39,9 @@ export function routeAgentNotification({
   if (!usePreferencesStore.getState().agentNotifications) return;
   if (focused && visible) return;
 
-  useAgentStore.getState().pushNotification({ source, agent, kind, tabId, leafId });
+  useAgentStore
+    .getState()
+    .pushNotification({ source, agent, kind, tabId, leafId, context });
 
   if (!focused) {
     recordPendingAgentJump(tabId, leafId);

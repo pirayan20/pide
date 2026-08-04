@@ -1,6 +1,6 @@
 pub mod modules;
 
-use modules::{agent, fs, git, history, lsp, pty, shell, usage, workspace};
+use modules::{agent, fs, git, history, lsp, power, pty, shell, usage, workspace};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
@@ -226,6 +226,7 @@ pub fn run() {
         .manage(lsp::LspState::default())
         .manage(fs::grep::ContentSearchState::default())
         .manage(usage::UsageState::default())
+        .manage(power::KeepAwake::default())
         .manage({
             let registry = workspace::WorkspaceRegistry::default();
             workspace::bootstrap_registry(&registry);
@@ -310,6 +311,7 @@ pub fn run() {
             open_settings_window,
             agent::agent_enable_hooks,
             agent::agent_hooks_status,
+            power::set_keep_awake,
             usage::usage_snapshot,
             usage::usage_refresh,
             usage::usage_connect,
@@ -328,6 +330,9 @@ pub fn run() {
                 tauri::RunEvent::Exit => {
                     if let Some(state) = app.try_state::<lsp::LspState>() {
                         state.kill_all();
+                    }
+                    if let Some(state) = app.try_state::<power::KeepAwake>() {
+                        state.set(false);
                     }
                 }
                 // macOS delivers "Open With" files here, not as argv (cold and

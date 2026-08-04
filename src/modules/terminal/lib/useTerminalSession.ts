@@ -341,10 +341,46 @@ async function leafHasForegroundJob(leafId: number): Promise<boolean> {
   }
 }
 
-function onLeafCommandState(leafId: number, running: boolean): void {
+type LeafCommandListener = (
+  leafId: number,
+  running: boolean,
+  command?: string,
+) => void;
+const leafCommandListeners = new Set<LeafCommandListener>();
+
+/** Observe per-leaf foreground-command state changes (OSC 133 C/D, blocks
+ * mode, shell exit). The agents module uses the falling edge to end
+ * title-derived agent sessions. */
+export function subscribeLeafCommandState(
+  listener: LeafCommandListener,
+): () => void {
+  leafCommandListeners.add(listener);
+  return () => {
+    leafCommandListeners.delete(listener);
+  };
+}
+
+export function leafCommandRunning(leafId: number): boolean {
+  return sessions.get(leafId)?.commandRunning ?? false;
+}
+
+function notifyLeafCommandState(
+  leafId: number,
+  running: boolean,
+  command?: string,
+): void {
+  for (const l of leafCommandListeners) l(leafId, running, command);
+}
+
+function onLeafCommandState(
+  leafId: number,
+  running: boolean,
+  command?: string,
+): void {
   const s = sessions.get(leafId);
   if (!s || s.commandRunning === running) return;
   s.commandRunning = running;
+  notifyLeafCommandState(leafId, running, command);
   if (!running) {
     scheduleHiddenRelease(leafId, s);
     return;
@@ -548,7 +584,10 @@ async function openPtyForSession(
         s.shellExited = true;
         s.pty = null;
         s.pendingInput = "";
-        s.commandRunning = false;
+        if (s.commandRunning) {
+          s.commandRunning = false;
+          notifyLeafCommandState(leafId, false);
+        }
         const slot = getSlotForLeaf(leafId);
         if (slot) slot.term.options.disableStdin = true;
         scheduleHiddenRelease(leafId, s);
@@ -577,7 +616,11 @@ function applyBlockMode(leafId: number, mode: BlockMode): void {
   const s = sessions.get(leafId);
   if (!s) return;
   s.blockMode = mode;
-  s.commandRunning = mode !== "prompt";
+  const running = mode !== "prompt";
+  if (s.commandRunning !== running) {
+    s.commandRunning = running;
+    notifyLeafCommandState(leafId, running);
+  }
   const slot = getSlotForLeaf(leafId);
   if (slot) {
     const prompt = mode === "prompt";
@@ -645,8 +688,10 @@ function bindLeafToSlot(leafId: number, s: Session): void {
       // 7 emitted by untrusted command output (remote SSH, `cat` of an
       // attacker file, etc.).
       const shellState = createShellIntegrationState();
-      const prompt = registerPromptTracker(term, shellState, (running) =>
-        onLeafCommandState(leafId, running),
+      const prompt = registerPromptTracker(
+        term,
+        shellState,
+        (running, command) => onLeafCommandState(leafId, running, command),
       );
       const cwd = registerCwdHandler(
         term,
@@ -744,7 +789,10 @@ export async function respawnSession(
   s.pendingExit = null;
   s.pendingInput = "";
   s.altScreenAtRelease = false;
-  s.commandRunning = false;
+  if (s.commandRunning) {
+    s.commandRunning = false;
+    notifyLeafCommandState(leafId, false);
+  }
   s.spawnFailed = false;
   cancelHiddenRelease(s);
 
