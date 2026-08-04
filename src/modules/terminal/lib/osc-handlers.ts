@@ -45,9 +45,10 @@ export type PromptTracker = {
 export function registerPromptTracker(
   term: Terminal,
   state?: ShellIntegrationState,
-  // Fires on C (process executing) and A/D (back at prompt). Distinct from
-  // inCommand, which is already true from B while the user merely types.
-  onCommandState?: (running: boolean) => void,
+  // Fires on C (process executing, with the command line when the shell
+  // reports one) and A/D (back at prompt). Distinct from inCommand, which is
+  // already true from B while the user merely types.
+  onCommandState?: (running: boolean, command?: string) => void,
 ): PromptTracker {
   let marker: IMarker | null = null;
   const d = term.parser.registerOscHandler(133, (data) => {
@@ -64,7 +65,7 @@ export function registerPromptTracker(
     } else if (data.startsWith("C")) {
       // OSC 133 C — command pre-execution marker; still inside command.
       if (state) state.inCommand = true;
-      onCommandState?.(true);
+      onCommandState?.(true, data.startsWith("C;") ? data.slice(2) : undefined);
     } else if (data.startsWith("D")) {
       // OSC 133 D — command ends.
       if (state) state.inCommand = false;

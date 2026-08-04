@@ -123,6 +123,7 @@ export type Preferences = {
   lastWslDistro: string | null;
   zoomLevel: number;
   agentNotifications: boolean;
+  agentKeepAwake: boolean;
   defaultWorkspaceEnv: string;
   shortcuts: Record<ShortcutId, KeyBinding[]>;
   editorAutoSave: boolean;
@@ -191,6 +192,7 @@ const KEY_TERMINAL_SCROLLBACK = "terminalScrollback";
 const KEY_LAST_WSL_DISTRO = "lastWslDistro";
 const KEY_ZOOM_LEVEL = "zoomLevel";
 const KEY_AGENT_NOTIFICATIONS = "agentNotifications";
+const KEY_AGENT_KEEP_AWAKE = "agentKeepAwake";
 const KEY_DEFAULT_WORKSPACE_ENV = "defaultWorkspaceEnv";
 const KEY_SHORTCUTS = "shortcuts";
 const KEY_EDITOR_AUTO_SAVE = "editorAutoSave";
@@ -252,6 +254,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   lastWslDistro: null,
   zoomLevel: 1.0,
   agentNotifications: true,
+  agentKeepAwake: false,
   defaultWorkspaceEnv: "local",
   shortcuts: {} as Record<ShortcutId, KeyBinding[]>,
   editorAutoSave: false,
@@ -355,6 +358,8 @@ export async function loadPreferences(): Promise<Preferences> {
     agentNotifications:
       get<boolean>(KEY_AGENT_NOTIFICATIONS) ??
       DEFAULT_PREFERENCES.agentNotifications,
+    agentKeepAwake:
+      get<boolean>(KEY_AGENT_KEEP_AWAKE) ?? DEFAULT_PREFERENCES.agentKeepAwake,
     defaultWorkspaceEnv:
       get<string>(KEY_DEFAULT_WORKSPACE_ENV) ??
       DEFAULT_PREFERENCES.defaultWorkspaceEnv,
@@ -621,6 +626,10 @@ export async function setAgentNotifications(value: boolean): Promise<void> {
   await writePref(KEY_AGENT_NOTIFICATIONS, value);
 }
 
+export async function setAgentKeepAwake(value: boolean): Promise<void> {
+  await writePref(KEY_AGENT_KEEP_AWAKE, value);
+}
+
 export async function setDefaultWorkspaceEnv(value: string): Promise<void> {
   await writePref(KEY_DEFAULT_WORKSPACE_ENV, value);
 }
@@ -668,6 +677,7 @@ export async function onPreferencesChange(
     [KEY_LAST_WSL_DISTRO]: "lastWslDistro",
     [KEY_ZOOM_LEVEL]: "zoomLevel",
     [KEY_AGENT_NOTIFICATIONS]: "agentNotifications",
+    [KEY_AGENT_KEEP_AWAKE]: "agentKeepAwake",
     [KEY_DEFAULT_WORKSPACE_ENV]: "defaultWorkspaceEnv",
     [KEY_SHORTCUTS]: "shortcuts",
     [KEY_EDITOR_AUTO_SAVE]: "editorAutoSave",

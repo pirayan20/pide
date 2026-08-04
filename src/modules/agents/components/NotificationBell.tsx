@@ -39,10 +39,12 @@ function relativeTime(ts: number): string {
 function StatusRow({
   agent,
   status,
+  context,
   onClick,
 }: {
   agent: string;
   status: AgentStatus;
+  context: string | null;
   onClick: () => void;
 }) {
   const waiting = status === "waiting";
@@ -57,8 +59,11 @@ function StatusRow({
         size={16}
         className="shrink-0 text-muted-foreground"
       />
-      <span className="flex-1 truncate text-sm text-foreground">
+      <span className="min-w-0 flex-1 truncate text-sm text-foreground">
         {displayAgent(agent)}
+        {context ? (
+          <span className="text-xs text-muted-foreground"> {context}</span>
+        ) : null}
       </span>
       <span
         className={cn(
@@ -168,6 +173,9 @@ function NotificationRow({
       <span className="min-w-0 flex-1 truncate text-sm text-foreground">
         {displayAgent(n.agent)}{" "}
         <span className="text-muted-foreground">{NOTIF_LABEL[n.kind]}</span>
+        {n.context ? (
+          <span className="text-xs text-muted-foreground"> {n.context}</span>
+        ) : null}
       </span>
       <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
         {relativeTime(n.at)}
@@ -301,6 +309,7 @@ export function NotificationBell({ onActivate }: Props) {
                 key={s.leafId}
                 agent={s.agent}
                 status={s.status}
+                context={s.context}
                 onClick={() => activate(s.tabId, s.leafId)}
               />
             ))}

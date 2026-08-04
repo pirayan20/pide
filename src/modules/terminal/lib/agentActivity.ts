@@ -3,7 +3,12 @@ import { create } from "zustand";
 
 export type AgentPhase = "working" | "attention" | "finished" | "idle";
 
-type AgentSignal = { id: number; kind: string; agent?: string | null };
+type AgentSignal = {
+  id: number;
+  kind: string;
+  agent?: string | null;
+  status?: string;
+};
 
 type AgentActivityStore = {
   phases: Record<number, AgentPhase>;
@@ -93,6 +98,8 @@ export function ensureAgentActivityListener(
     }
     if (e.payload.kind === "started") {
       store.start(id, e.payload.agent ?? "agent");
+      // Title-derived sessions can begin at rest (e.g. Claude's idle title).
+      if (e.payload.status === "waiting") store.setPhase(id, "idle");
     } else {
       store.setPhase(id, action);
     }

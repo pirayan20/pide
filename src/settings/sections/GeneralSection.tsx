@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import type { ThemePref } from "@/modules/settings/store";
 import {
+  setAgentKeepAwake,
   setAgentNotifications,
   setAutostart,
   setDefaultWorkspaceEnv,
@@ -100,6 +101,7 @@ export function GeneralSection() {
   const terminalScrollback = usePreferencesStore((s) => s.terminalScrollback);
   const zoomLevel = usePreferencesStore((s) => s.zoomLevel);
   const agentNotifications = usePreferencesStore((s) => s.agentNotifications);
+  const agentKeepAwake = usePreferencesStore((s) => s.agentKeepAwake);
 
   useEffect(() => {
     let alive = true;
@@ -468,6 +470,15 @@ export function GeneralSection() {
           <Switch
             checked={agentNotifications}
             onCheckedChange={(v) => void setAgentNotifications(v)}
+          />
+        </SettingRow>
+        <SettingRow
+          title="Keep system awake while agents work"
+          description="Prevent sleep while a coding agent is running in a terminal, so long tasks are not interrupted. Released as soon as no agent is working."
+        >
+          <Switch
+            checked={agentKeepAwake}
+            onCheckedChange={(v) => void setAgentKeepAwake(v)}
           />
         </SettingRow>
       </div>
