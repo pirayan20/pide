@@ -8,7 +8,7 @@ use portable_pty::{native_pty_system, ChildKiller, MasterPty, PtySize};
 use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, Emitter, Manager};
 
-use super::agent_detect::AgentDetector;
+use super::agent_detect::{AgentDetector, Transition};
 use super::da_filter::DaFilter;
 use super::shell_init;
 use crate::modules::workspace::WorkspaceEnv;
@@ -52,6 +52,10 @@ pub struct Session {
     // Set by the waiter once the child exits, so pty_open can reap a shell
     // that died before it was registered.
     pub(super) exited: Arc<AtomicBool>,
+    // Agent currently armed in this pty's detector (mirrors Started/Exited
+    // transitions). Lets a reloaded webview re-learn agent identity: the
+    // detector never re-emits Started for an already-armed session.
+    pub(super) agent: Arc<Mutex<Option<String>>>,
 }
 
 impl Drop for Session {
@@ -152,6 +156,7 @@ pub fn spawn(
     };
 
     let exited = Arc::new(AtomicBool::new(false));
+    let agent: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
 
     let session = Arc::new(Session {
         #[cfg(windows)]
@@ -161,6 +166,7 @@ pub fn spawn(
         writer: writer.clone(),
         master: Mutex::new(pair.master),
         exited: exited.clone(),
+        agent: agent.clone(),
     });
 
     let pending: Arc<(Mutex<Vec<u8>>, Condvar)> = Arc::new((
@@ -175,6 +181,7 @@ pub fn spawn(
     let pending_r = pending.clone();
     let writer_for_da = writer.clone();
     let app_reader = app.clone();
+    let agent_r = agent;
     let first_byte_r = first_byte;
     let reader_thread = thread::Builder::new()
         .name("pide-pty-reader".into())
@@ -193,6 +200,13 @@ pub fn spawn(
                             log::debug!("pty first byte after {}ms", spawn_at.elapsed().as_millis());
                         }
                         agent_detect.process(&buf[..n], |t| {
+                            match &t {
+                                Transition::Started { agent } => {
+                                    *agent_r.lock().unwrap() = Some(agent.clone());
+                                }
+                                Transition::Exited => *agent_r.lock().unwrap() = None,
+                                _ => {}
+                            }
                             let _ = app_reader.emit(AGENT_EVENT, t.into_signal(id));
                         });
                         filtered.clear();
@@ -221,6 +235,9 @@ pub fn spawn(
                 }
             }
             agent_detect.finish(|t| {
+                if matches!(t, Transition::Exited) {
+                    *agent_r.lock().unwrap() = None;
+                }
                 let _ = app_reader.emit(AGENT_EVENT, t.into_signal(id));
             });
             pending_r.1.notify_one();
@@ -346,6 +363,7 @@ mod tests {
             writer,
             master: Mutex::new(pair.master),
             exited: Arc::new(AtomicBool::new(false)),
+            agent: Arc::new(Mutex::new(None)),
         });
 
         assert!(
@@ -395,6 +413,7 @@ mod tests {
             writer,
             master: Mutex::new(pair.master),
             exited: Arc::new(AtomicBool::new(false)),
+            agent: Arc::new(Mutex::new(None)),
         });
 
         drop_session(session);

@@ -44,9 +44,9 @@ describe("aggregateAgentPhases", () => {
     expect(
       aggregateAgentPhases({ 1: "working", 2: "finished" }, [1, 2]),
     ).toEqual({ top: "working", count: 1 });
-    expect(aggregateAgentPhases({ 1: "finished", 2: "finished" }, [1, 2])).toEqual(
-      { top: "finished", count: 2 },
-    );
+    expect(
+      aggregateAgentPhases({ 1: "finished", 2: "finished" }, [1, 2]),
+    ).toEqual({ top: "finished", count: 2 });
   });
 
   it("only considers the given ptyIds", () => {
@@ -107,9 +107,7 @@ describe("pickTabAgent", () => {
 });
 
 describe("agent name tracking", () => {
-  beforeEach(() =>
-    useAgentActivityStore.setState({ phases: {}, agents: {} }),
-  );
+  beforeEach(() => useAgentActivityStore.setState({ phases: {}, agents: {} }));
 
   it("start records phase and agent; clear drops both", () => {
     const s = useAgentActivityStore.getState();
@@ -119,5 +117,18 @@ describe("agent name tracking", () => {
     useAgentActivityStore.getState().clear(1);
     expect(useAgentActivityStore.getState().phases[1]).toBeUndefined();
     expect(useAgentActivityStore.getState().agents[1]).toBeUndefined();
+  });
+
+  it("seed restores identity without inventing a phase", () => {
+    useAgentActivityStore.getState().seed(1, "pi");
+    expect(useAgentActivityStore.getState().agents[1]).toBe("pi");
+    expect(useAgentActivityStore.getState().phases[1]).toBeUndefined();
+  });
+
+  it("seed never overwrites a live entry", () => {
+    const s = useAgentActivityStore.getState();
+    s.start(1, "pi");
+    s.seed(1, "claude");
+    expect(useAgentActivityStore.getState().agents[1]).toBe("pi");
   });
 });

@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
 
@@ -15,6 +16,10 @@ type AgentActivityStore = {
   agents: Record<number, string>;
   setPhase: (id: number, phase: AgentPhase) => void;
   start: (id: number, agent: string) => void;
+  /** Identity only, no phase: restores who runs where after a webview reload
+   * without inventing a status the detector didn't report. Never overwrites a
+   * live entry. */
+  seed: (id: number, agent: string) => void;
   clear: (id: number) => void;
 };
 
@@ -31,6 +36,11 @@ export const useAgentActivityStore = create<AgentActivityStore>((set) => ({
       phases: { ...s.phases, [id]: "working" },
       agents: { ...s.agents, [id]: agent },
     })),
+  seed: (id, agent) =>
+    set((s) => {
+      if (id in s.agents) return s;
+      return { agents: { ...s.agents, [id]: agent } };
+    }),
   clear: (id) =>
     set((s) => {
       if (!(id in s.phases) && !(id in s.agents)) return s;
@@ -85,6 +95,16 @@ export function ensureAgentActivityListener(
   onExited = exited;
   if (bound || typeof window === "undefined") return;
   bound = true;
+  // Recover agent identity for ptys armed before this webview loaded (reload,
+  // crash recovery): Rust keeps the armed name but only ever emits Started once.
+  invoke<Record<string, string>>("pty_agent_states")
+    .then((states) => {
+      const store = useAgentActivityStore.getState();
+      for (const [id, agent] of Object.entries(states)) {
+        store.seed(Number(id), agent);
+      }
+    })
+    .catch(() => {});
   void listen<AgentSignal>("pide:agent-signal", (e) => {
     const { id } = e.payload;
     const action = phaseForSignal(e.payload.kind);
