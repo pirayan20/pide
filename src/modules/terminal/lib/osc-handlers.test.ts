@@ -127,9 +127,8 @@ describe("OSC 133 command-state tracking", () => {
     registerPromptTracker(term, undefined, onCommandState);
 
     handlers.get(133)?.("A");
-    expect(onCommandState).toHaveBeenLastCalledWith(false);
     handlers.get(133)?.("B");
-    expect(onCommandState).toHaveBeenCalledTimes(1);
+    expect(onCommandState).not.toHaveBeenCalled();
     handlers.get(133)?.("C;claude");
     expect(onCommandState).toHaveBeenLastCalledWith(true, "claude");
     handlers.get(133)?.("D;0");
@@ -145,14 +144,21 @@ describe("OSC 133 command-state tracking", () => {
     expect(onCommandState).toHaveBeenLastCalledWith(true, undefined);
   });
 
-  it("clears running state on a bare new prompt when D was lost", () => {
+  it("keeps the command running across TUI zone marks (pi's bare A/B/C)", () => {
+    // pi's TUI repaints OSC 133 A/B/C zone marks around every message; only
+    // the shell's D may end the command, or live agent sessions get torn down.
     const { term, handlers } = makeFakeTerm();
     const onCommandState = vi.fn();
     registerPromptTracker(term, undefined, onCommandState);
 
-    handlers.get(133)?.("C;vim");
-    expect(onCommandState).toHaveBeenLastCalledWith(true, "vim");
+    handlers.get(133)?.("C;pi -c");
+    expect(onCommandState).toHaveBeenLastCalledWith(true, "pi -c");
     handlers.get(133)?.("A");
+    handlers.get(133)?.("B");
+    handlers.get(133)?.("C");
+    expect(onCommandState).toHaveBeenLastCalledWith(true, undefined);
+    expect(onCommandState).not.toHaveBeenCalledWith(false);
+    handlers.get(133)?.("D;0");
     expect(onCommandState).toHaveBeenLastCalledWith(false);
   });
 });
