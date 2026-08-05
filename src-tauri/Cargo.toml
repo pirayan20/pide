@@ -1,6 +1,6 @@
 [package]
 name = "pide"
-version = "0.10.3"
+version = "0.10.4"
 description = "Pide, an open-source terminal-first development workspace"
 authors = ["pirayan20"]
 license = "Apache-2.0"

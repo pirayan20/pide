@@ -1,4 +1,5 @@
 export { CommandPalette } from "./CommandPalette";
+export { QuickOpen } from "./QuickOpen";
 export {
   createCommandItems,
   type CommandPaletteActionContext,
