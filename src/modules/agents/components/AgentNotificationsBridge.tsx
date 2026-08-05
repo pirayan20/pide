@@ -1,6 +1,7 @@
 import { useSpaces } from "@/modules/spaces";
 import type { Tab } from "@/modules/tabs";
 import {
+  agentForPty,
   hasLeaf,
   leafCommandRunning,
   leafIdForPty,
@@ -87,7 +88,20 @@ function route(
   });
 }
 
-function handleSignal(sig: AgentSignal, ctx: Ctx): void {
+/** A webview reload drops sessions but the detector stays armed and never
+ * re-emits started: rebuild the session from the reseeded identity when its
+ * next signal arrives, so status and notifications survive the reload. */
+function reviveSession(leafId: number, ptyId: number, ctx: Ctx): void {
+  const store = useAgentStore.getState();
+  if (store.sessions[leafId]) return;
+  const agent = agentForPty(ptyId);
+  if (!agent) return;
+  const info = tabInfo(ctx.tabs, leafId);
+  if (!info) return;
+  store.start(leafId, info.tabId, agent, info.context);
+}
+
+export function handleSignal(sig: AgentSignal, ctx: Ctx): void {
   const leafId = leafIdForPty(sig.id);
   if (leafId === null) return;
   const store = useAgentStore.getState();
@@ -101,6 +115,7 @@ function handleSignal(sig: AgentSignal, ctx: Ctx): void {
       return;
     }
     case "working":
+      reviveSession(leafId, sig.id, ctx);
       // Explicit 777 markers outrank title heuristics from here on. OSC 9
       // attention is excluded: a hook-less agent that rings the bell once must
       // keep its title-driven status.
@@ -108,16 +123,18 @@ function handleSignal(sig: AgentSignal, ctx: Ctx): void {
       store.setStatus(leafId, "working");
       return;
     case "attention": {
+      reviveSession(leafId, sig.id, ctx);
       store.setStatus(leafId, "waiting");
-      const session = store.sessions[leafId];
+      const session = useAgentStore.getState().sessions[leafId];
       if (session) route(session, "attention", ctx);
       return;
     }
     case "finished":
     case "error": {
+      reviveSession(leafId, sig.id, ctx);
       if (!sig.synthetic) store.markHookDriven(leafId);
       store.setStatus(leafId, "waiting");
-      const session = store.sessions[leafId];
+      const session = useAgentStore.getState().sessions[leafId];
       if (session) route(session, sig.kind, ctx);
       return;
     }
