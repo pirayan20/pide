@@ -1,7 +1,5 @@
 export type AgentStatus = "working" | "waiting";
 
-export type AgentSource = "terminal";
-
 export type AgentSignalKind =
   | "started"
   | "working"
@@ -35,18 +33,3 @@ export type AgentSession = {
   /** "Space/Project" of the owning tab, shown on notification surfaces. */
   context: string | null;
 };
-
-export type AgentNotification = {
-  id: string;
-  source: AgentSource;
-  leafId: number;
-  tabId: number;
-  agent: string;
-  kind: NotificationKind;
-  at: number;
-  read: boolean;
-  /** "Space/Project" of the owning tab at notification time. */
-  context: string | null;
-};
-
-export type NotificationKind = "attention" | "finished" | "error";

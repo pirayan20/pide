@@ -301,6 +301,20 @@ pub fn pty_close_all(state: tauri::State<PtyState>) -> Result<usize, String> {
     Ok(count)
 }
 
+// Armed coding agent per live pty. Rehydrates the frontend's agent-identity
+// map after a webview reload: the detector stays armed across reloads and
+// never re-emits Started, so the event stream alone can't recover the name.
+#[tauri::command]
+pub fn pty_agent_states(state: tauri::State<'_, PtyState>) -> HashMap<u32, String> {
+    state
+        .sessions
+        .read()
+        .unwrap()
+        .iter()
+        .filter_map(|(id, s)| s.agent.lock().unwrap().clone().map(|a| (*id, a)))
+        .collect()
+}
+
 #[tauri::command]
 pub fn pty_shell_name() -> String {
     shell_init::detect_shell_name()

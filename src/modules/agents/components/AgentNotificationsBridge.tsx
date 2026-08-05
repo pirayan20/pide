@@ -74,16 +74,12 @@ function route(
     session.context ?? tabInfo(ctx.tabs, session.leafId)?.context ?? null;
 
   routeAgentNotification({
-    source: "terminal",
     agent: session.agent,
-    kind,
     title: heading,
     body: context ?? undefined,
-    context,
     focused: ctx.focused,
     visible: ctx.activeId === session.tabId,
-    // Stop fires every turn, so finished only updates the bell; attention and
-    // error toast.
+    // Stop fires every turn, so finished never toasts; attention and error do.
     allowToast: kind !== "finished",
     tabId: session.tabId,
     leafId: session.leafId,

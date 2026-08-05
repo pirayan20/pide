@@ -23,12 +23,12 @@ function session(overrides: Partial<AgentSession>): AgentSession {
 
 describe("keepAwakeEligible", () => {
   it("requires the preference to be enabled", () => {
-    expect(keepAwakeEligible([session({ lastActivityAt: 100 })], false, 100)).toBe(
-      false,
-    );
-    expect(keepAwakeEligible([session({ lastActivityAt: 100 })], true, 100)).toBe(
-      true,
-    );
+    expect(
+      keepAwakeEligible([session({ lastActivityAt: 100 })], false, 100),
+    ).toBe(false);
+    expect(
+      keepAwakeEligible([session({ lastActivityAt: 100 })], true, 100),
+    ).toBe(true);
   });
 
   it("ignores waiting sessions", () => {
@@ -43,9 +43,9 @@ describe("keepAwakeEligible", () => {
 
   it("ignores sessions stuck working past the stale cap", () => {
     const now = KEEP_AWAKE_STALE_AFTER_MS + 1000;
-    expect(
-      keepAwakeEligible([session({ lastActivityAt: 0 })], true, now),
-    ).toBe(false);
+    expect(keepAwakeEligible([session({ lastActivityAt: 0 })], true, now)).toBe(
+      false,
+    );
     expect(
       keepAwakeEligible([session({ lastActivityAt: 1000 })], true, now),
     ).toBe(true);
