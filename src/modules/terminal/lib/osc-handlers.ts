@@ -46,8 +46,11 @@ export function registerPromptTracker(
   term: Terminal,
   state?: ShellIntegrationState,
   // Fires on C (process executing, with the command line when the shell
-  // reports one) and A/D (back at prompt). Distinct from inCommand, which is
-  // already true from B while the user merely types.
+  // reports one) and D (back at prompt). Distinct from inCommand, which is
+  // already true from B while the user merely types. A must not end the
+  // command: every Pide shell config emits D before the prompt's A, and TUIs
+  // (pi's message zone marks) repaint bare A/B/C mid-command, so an A-driven
+  // falling edge would tear down live agent sessions.
   onCommandState?: (running: boolean, command?: string) => void,
 ): PromptTracker {
   let marker: IMarker | null = null;
@@ -55,7 +58,6 @@ export function registerPromptTracker(
     // OSC 133 A — start of new prompt (between commands).
     if (data.startsWith("A")) {
       if (state) state.inCommand = false;
-      onCommandState?.(false);
       marker?.dispose();
       marker = term.registerMarker(0);
     } else if (data.startsWith("B")) {
