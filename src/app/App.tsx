@@ -16,7 +16,11 @@ import {
   nextAttentionTarget,
 } from "@/modules/agents";
 import { useWindowFocus } from "@/modules/agents/lib/useWindowFocus";
-import { CommandPalette, createCommandItems } from "@/modules/command-palette";
+import {
+  CommandPalette,
+  createCommandItems,
+  QuickOpen,
+} from "@/modules/command-palette";
 import {
   type EditorPaneHandle,
   NewEditorDialog,
@@ -360,6 +364,7 @@ export default function App() {
 
   const [newEditorOpen, setNewEditorOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [quickOpenOpen, setQuickOpenOpen] = useState(false);
   const [paletteInitialMode, setPaletteInitialMode] = useState<
     "commands" | "content"
   >("commands");
@@ -745,7 +750,7 @@ export default function App() {
   const shortcutHandlers = useMemo<ShortcutHandlers>(
     () => ({
       "commandPalette.open": () => openCommandPalette("commands"),
-      "commandPalette.content": () => openCommandPalette("content"),
+      "quickOpen.open": () => setQuickOpenOpen(true),
       "tab.new": openNewTab,
       "tab.newBlock": openNewBlockTab,
       "tab.newPrivate": openNewPrivateTab,
@@ -1337,6 +1342,7 @@ export default function App() {
               gitStatus={explorerGitDecorations ? sourceControl.status : null}
               activeFilePath={explorerActiveFilePath}
               onOpenFile={handleOpenFile}
+              onOpenAtLine={openContentHit}
               onPathRenamed={handlePathRenamed}
               onPathDeleted={handlePathDeleted}
               onRevealInTerminal={cdInNewTab}
@@ -1491,6 +1497,13 @@ export default function App() {
             workspaceRoot={explorerRoot}
             onOpenContentHit={openContentHit}
             insertCommand={insertHistoryCommand}
+          />
+
+          <QuickOpen
+            open={quickOpenOpen}
+            onOpenChange={setQuickOpenOpen}
+            rootPath={explorerRoot}
+            onOpenFile={(path) => handleOpenFile(path, true)}
           />
 
           <ProjectPathDialog
