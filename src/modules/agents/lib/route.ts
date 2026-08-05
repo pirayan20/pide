@@ -1,17 +1,11 @@
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { showAgentToast } from "../components/AgentToast";
-import { useAgentStore } from "../store/agentStore";
 import { osNotify } from "./notify";
-import type { AgentSource, NotificationKind } from "./types";
 
 type RouteArgs = {
-  source: AgentSource;
   agent: string;
-  kind: NotificationKind;
   title: string;
   body?: string;
-  /** "Space/Project" of the owning tab, shown in the bell list. */
-  context?: string | null;
   focused: boolean;
   /** True when the user is currently looking at this agent. */
   visible: boolean;
@@ -23,12 +17,9 @@ type RouteArgs = {
 };
 
 export function routeAgentNotification({
-  source,
   agent,
-  kind,
   title,
   body,
-  context = null,
   focused,
   visible,
   allowToast,
@@ -38,10 +29,6 @@ export function routeAgentNotification({
 }: RouteArgs): void {
   if (!usePreferencesStore.getState().agentNotifications) return;
   if (focused && visible) return;
-
-  useAgentStore
-    .getState()
-    .pushNotification({ source, agent, kind, tabId, leafId, context });
 
   if (!focused) {
     recordPendingAgentJump(tabId, leafId);

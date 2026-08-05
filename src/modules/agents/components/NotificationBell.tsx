@@ -18,23 +18,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { useMemo, useState } from "react";
 import { AgentIcon } from "../lib/agentIcon";
 import { displayAgent } from "../lib/format";
-import type { AgentNotification, AgentStatus } from "../lib/types";
+import type { AgentStatus } from "../lib/types";
 import { useAgentStore } from "../store/agentStore";
 import { showAgentToast } from "./AgentToast";
 
 type Props = {
   onActivate: (tabId: number, leafId: number) => void;
 };
-
-function relativeTime(ts: number): string {
-  const s = Math.floor((Date.now() - ts) / 1000);
-  if (s < 60) return "just now";
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
-}
 
 function StatusRow({
   agent,
@@ -77,12 +67,6 @@ function StatusRow({
     </button>
   );
 }
-
-const NOTIF_LABEL: Record<AgentNotification["kind"], string> = {
-  attention: "needs input",
-  finished: "finished",
-  error: "failed",
-};
 
 const HOOK_AGENTS = ["claude", "codex", "gemini", "pi"] as const;
 
@@ -140,69 +124,16 @@ function HookAgentRow({
   );
 }
 
-function NotificationRow({
-  n,
-  onClick,
-}: {
-  n: AgentNotification;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-accent"
-    >
-      <span className="flex w-4 shrink-0 items-center justify-center">
-        {n.kind === "finished" ? (
-          <HugeiconsIcon
-            icon={CheckmarkCircle02Icon}
-            size={15}
-            strokeWidth={1.75}
-            className="text-muted-foreground"
-          />
-        ) : (
-          <span
-            className={cn(
-              "size-1.5 rounded-full",
-              n.kind === "error" ? "bg-destructive" : "bg-primary",
-            )}
-          />
-        )}
-      </span>
-      <span className="min-w-0 flex-1 truncate text-sm text-foreground">
-        {displayAgent(n.agent)}{" "}
-        <span className="text-muted-foreground">{NOTIF_LABEL[n.kind]}</span>
-        {n.context ? (
-          <span className="text-xs text-muted-foreground"> {n.context}</span>
-        ) : null}
-      </span>
-      <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
-        {relativeTime(n.at)}
-      </span>
-    </button>
-  );
-}
-
 export function NotificationBell({ onActivate }: Props) {
   const [open, setOpen] = useState(false);
   const [hooks, setHooks] = useState<Record<string, boolean>>({});
   const [installing, setInstalling] = useState<string | null>(null);
   const [alertsOpen, setAlertsOpen] = useState(false);
   const sessions = useAgentStore((s) => s.sessions);
-  const notifications = useAgentStore((s) => s.notifications);
-  const markAllRead = useAgentStore((s) => s.markAllRead);
-  const clearNotifications = useAgentStore((s) => s.clearNotifications);
 
   const active = useMemo(() => Object.values(sessions), [sessions]);
   const activeCount = active.length;
-  const waitingCount = active.filter((s) => s.status === "waiting").length;
-  // attention maps to an active waiting session, so only completed events add
-  // to the badge to avoid double-counting.
-  const unreadDone = notifications.filter(
-    (n) => !n.read && n.kind !== "attention",
-  ).length;
-  const badge = waitingCount + unreadDone;
+  const badge = active.filter((s) => s.status === "waiting").length;
   const enabledCount = HOOK_AGENTS.filter((id) => hooks[id] === true).length;
 
   const refreshHooks = () => {
@@ -215,10 +146,7 @@ export function NotificationBell({ onActivate }: Props) {
 
   const onOpenChange = (next: boolean) => {
     setOpen(next);
-    if (next) {
-      markAllRead();
-      refreshHooks();
-    }
+    if (next) refreshHooks();
   };
 
   const enableHooks = async (id: string) => {
@@ -243,12 +171,6 @@ export function NotificationBell({ onActivate }: Props) {
     onActivate(tabId, leafId);
     setOpen(false);
   };
-
-  const activateNotification = (n: AgentNotification) => {
-    activate(n.tabId, n.leafId);
-  };
-
-  const empty = activeCount === 0 && notifications.length === 0;
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
@@ -286,19 +208,10 @@ export function NotificationBell({ onActivate }: Props) {
                 {activeCount} active
               </span>
             ) : null}
-            {notifications.length > 0 ? (
-              <button
-                type="button"
-                onClick={clearNotifications}
-                className="rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              >
-                Clear
-              </button>
-            ) : null}
           </div>
         </div>
 
-        {empty ? (
+        {activeCount === 0 ? (
           <div className="border-t border-border/60 px-3 py-5 text-center text-xs leading-relaxed text-muted-foreground">
             No coding agent activity yet.
           </div>
@@ -313,16 +226,6 @@ export function NotificationBell({ onActivate }: Props) {
                 onClick={() => activate(s.tabId, s.leafId)}
               />
             ))}
-            {activeCount > 0 && notifications.length > 0 ? (
-              <div className="mx-2 my-1 h-px bg-border/50" />
-            ) : null}
-            {notifications.map((n) => (
-              <NotificationRow
-                key={n.id}
-                n={n}
-                onClick={() => activateNotification(n)}
-              />
-            ))}
           </div>
         )}
 
@@ -333,7 +236,11 @@ export function NotificationBell({ onActivate }: Props) {
             aria-expanded={alertsOpen}
             className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70 transition-colors hover:text-foreground"
           >
-            <HugeiconsIcon icon={Notification03Icon} size={11} strokeWidth={2} />
+            <HugeiconsIcon
+              icon={Notification03Icon}
+              size={11}
+              strokeWidth={2}
+            />
             Agent alerts
             <span className="ml-auto flex items-center gap-1.5 normal-case tracking-normal">
               {enabledCount > 0 ? (

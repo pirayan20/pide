@@ -1,17 +1,8 @@
 import { create } from "zustand";
-import type {
-  AgentNotification,
-  AgentSession,
-  AgentStatus,
-} from "../lib/types";
-
-const MAX_NOTIFICATIONS = 50;
-
-let notifSeq = 0;
+import type { AgentSession, AgentStatus } from "../lib/types";
 
 type AgentStoreState = {
   sessions: Record<number, AgentSession>;
-  notifications: AgentNotification[];
   start: (
     leafId: number,
     tabId: number,
@@ -21,14 +12,10 @@ type AgentStoreState = {
   setStatus: (leafId: number, status: AgentStatus) => void;
   markHookDriven: (leafId: number) => void;
   finish: (leafId: number) => void;
-  pushNotification: (n: Omit<AgentNotification, "id" | "at" | "read">) => void;
-  markAllRead: () => void;
-  clearNotifications: () => void;
 };
 
 export const useAgentStore = create<AgentStoreState>((set) => ({
   sessions: {},
-  notifications: [],
 
   start: (leafId, tabId, agent, context = null) =>
     set((s) => {
@@ -78,36 +65,13 @@ export const useAgentStore = create<AgentStoreState>((set) => ({
       };
     }),
 
-  // A closed agent takes its notifications with it: stale "finished" entries
-  // for a session the user already dismissed only add noise.
   finish: (leafId) =>
     set((s) => {
-      const remaining = s.notifications.filter((n) => n.leafId !== leafId);
-      if (!s.sessions[leafId] && remaining.length === s.notifications.length) {
-        return s;
-      }
+      if (!s.sessions[leafId]) return s;
       const next = { ...s.sessions };
       delete next[leafId];
-      return { sessions: next, notifications: remaining };
+      return { sessions: next };
     }),
-
-  pushNotification: (n) =>
-    set((s) => ({
-      notifications: [
-        { ...n, id: `n${++notifSeq}`, at: Date.now(), read: false },
-        ...s.notifications,
-      ].slice(0, MAX_NOTIFICATIONS),
-    })),
-
-  markAllRead: () =>
-    set((s) => {
-      if (!s.notifications.some((n) => !n.read)) return s;
-      return {
-        notifications: s.notifications.map((n) => ({ ...n, read: true })),
-      };
-    }),
-
-  clearNotifications: () => set({ notifications: [] }),
 }));
 
 /** The tab/leaf of the agent that most recently entered the waiting state, for
