@@ -104,6 +104,21 @@ describe("pickTabAgent", () => {
   it("ignores ptys with a phase but no recorded agent", () => {
     expect(pickTabAgent({ 1: "working" }, {}, [[10, 1]])).toBeNull();
   });
+
+  it("shows a seeded identity with no phase at idle rank", () => {
+    // Webview reload: identity reseeded from Rust, phase unknown until the
+    // agent's next signal. The tab must still attribute the agent.
+    expect(pickTabAgent({}, { 1: "pi" }, [[10, 1]])).toEqual({
+      agent: "pi",
+      leafId: 10,
+    });
+    expect(
+      pickTabAgent({ 2: "working" }, { 1: "pi", 2: "claude" }, [
+        [10, 1],
+        [11, 2],
+      ]),
+    ).toEqual({ agent: "claude", leafId: 11 });
+  });
 });
 
 describe("agent name tracking", () => {

@@ -178,7 +178,9 @@ const PHASE_RANK: Record<AgentPhase, number> = {
 };
 
 /** Agent shown on a tab: the one whose pty has the highest-severity phase.
- * Presence (any phase, including idle) keeps the agent visible until exit. */
+ * Identity alone (a seeded entry with no phase, e.g. after a webview reload)
+ * still counts as presence at idle rank: the detector is armed, so the agent
+ * must stay visible until exit even before its next status signal. */
 export function pickTabAgent(
   phases: Record<number, AgentPhase>,
   agents: Record<number, string>,
@@ -189,8 +191,8 @@ export function pickTabAgent(
   for (const [leafId, ptyId] of pairs) {
     const phase = phases[ptyId];
     const agent = agents[ptyId];
-    if (phase === undefined || !agent) continue;
-    const rank = PHASE_RANK[phase];
+    if (!agent) continue;
+    const rank = phase === undefined ? PHASE_RANK.idle : PHASE_RANK[phase];
     if (rank > bestRank) {
       bestRank = rank;
       best = { agent, leafId };
