@@ -35,7 +35,9 @@ mod imp {
         let pid = std::process::id().to_string();
         #[cfg(target_os = "macos")]
         {
-            ("/usr/bin/caffeinate", vec!["-i".into(), "-s".into(), "-w".into(), pid])
+            // -d keeps the display awake too (matches ORCA's prevent-display-sleep);
+            // without it the screen sleeps and locks even though the system stays up.
+            ("/usr/bin/caffeinate", vec!["-d".into(), "-i".into(), "-s".into(), "-w".into(), pid])
         }
         #[cfg(not(target_os = "macos"))]
         {
@@ -84,7 +86,7 @@ mod imp {
 mod imp {
     use std::sync::mpsc::{channel, Sender};
     use windows_sys::Win32::System::Power::{
-        SetThreadExecutionState, ES_CONTINUOUS, ES_SYSTEM_REQUIRED,
+        SetThreadExecutionState, ES_CONTINUOUS, ES_DISPLAY_REQUIRED, ES_SYSTEM_REQUIRED,
     };
 
     // ES_CONTINUOUS is per-thread state, so a dedicated thread holds it.
@@ -96,7 +98,9 @@ mod imp {
         std::thread::Builder::new()
             .name("keep-awake".into())
             .spawn(move || {
-                unsafe { SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED) };
+                unsafe {
+                    SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED)
+                };
                 let _ = rx.recv();
                 unsafe { SetThreadExecutionState(ES_CONTINUOUS) };
             })
@@ -121,6 +125,6 @@ mod tests {
     fn macos_uses_caffeinate() {
         let (program, args) = super::imp::inhibit_command();
         assert_eq!(program, "/usr/bin/caffeinate");
-        assert_eq!(args[..3], ["-i", "-s", "-w"]);
+        assert_eq!(args[..4], ["-d", "-i", "-s", "-w"]);
     }
 }
