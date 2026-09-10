@@ -186,9 +186,21 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn inhibitor_always_blocks_system_and_idle_sleep() {
-        let (_, args) = super::imp::inhibit_command(false);
-        assert!(args.contains(&"-s".into()));
-        assert!(args.contains(&"-i".into()));
+        for display_allowed in [false, true] {
+            let (program, args) = super::imp::inhibit_command(display_allowed);
+            #[cfg(target_os = "macos")]
+            {
+                assert_eq!(program, "/usr/bin/caffeinate");
+                assert!(args.contains(&"-s".into()));
+                assert!(args.contains(&"-i".into()));
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                assert_eq!(program, "systemd-inhibit");
+                assert!(args.contains(&"--what=sleep:idle".into()));
+                assert!(args.contains(&"--mode=block".into()));
+            }
+        }
     }
 
     #[cfg(target_os = "macos")]
