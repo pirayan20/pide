@@ -1,3 +1,5 @@
+import { useAgentStore } from "@/modules/agents/store/agentStore";
+import { cancelSidebarMotion } from "@/modules/sidebar/animateSidebarLayout";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -10,7 +12,7 @@ import { native } from "@/lib/native";
 import { IS_WINDOWS } from "@/lib/platform";
 import { quoteShellArg } from "@/lib/shellQuote";
 import { useZoom } from "@/lib/useZoom";
-import { cn, previewRendererFor } from "@/lib/utils";
+import { previewRendererFor } from "@/lib/utils";
 import {
   AgentNotificationsBridge,
   nextAttentionTarget,
@@ -51,7 +53,6 @@ import {
 import {
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
-  sidebarLayoutOrder,
   SidebarRail,
   useSidebarPanel,
 } from "@/modules/sidebar";
@@ -65,11 +66,13 @@ import {
   ProjectPathDialog,
   ProjectStateView,
   pathsOverlap,
-  SpaceSwitcher,
+  ProjectSidebar,
   useSpacePersistence,
   useSpaces,
   useSpacesBoot,
 } from "@/modules/spaces";
+import { PROJECT_PANEL } from "@/modules/sidebar/panelState";
+import { useResizableSidebar } from "@/modules/sidebar/useResizableSidebar";
 import { StatusBar } from "@/modules/statusbar";
 import {
   TabSwitcherHud,
@@ -302,13 +305,27 @@ export default function App() {
       state.setActiveSpace(project.spaceId);
       state.setActiveProject(project.spaceId, project.id);
       setActiveProjectForNewTabs(project.id);
+      const attention =
+        state.availability[project.id] === "available"
+          ? nextAttentionTarget(
+              tabsRef.current
+                .filter((tab) => tab.projectId === project.id)
+                .map((tab) => tab.id),
+            )
+          : null;
+      if (attention) {
+        setActiveId(attention.tabId);
+        focusPane(attention.tabId, attention.leafId);
+        useAgentStore.getState().acknowledge(attention.leafId);
+        return;
+      }
       setActiveId(
         state.availability[project.id] === "available"
           ? activeTabForProject(project.id)
           : null,
       );
     },
-    [activeTabForProject, setActiveId, setActiveProjectForNewTabs],
+    [activeTabForProject, setActiveId, setActiveProjectForNewTabs, focusPane],
   );
 
   useEffect(() => {
@@ -338,7 +355,8 @@ export default function App() {
     if (space) void adoptWorkspaceEnv(space.env);
   }, [activeSpaceId, spacesHydrated, adoptWorkspaceEnv]);
 
-  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const projectSidebar = useResizableSidebar(PROJECT_PANEL);
+  const openProjects = projectSidebar.expand;
   const [projectDialog, setProjectDialog] = useState<{
     mode: "add" | "locate";
     spaceId: string;
@@ -354,6 +372,7 @@ export default function App() {
     sidebarWidthRef,
     sidebarView,
     initialSidebarCollapsed,
+    sidebarCollapsed,
     persistSidebarView,
     persistSidebarCollapsed,
     toggleSidebar,
@@ -661,7 +680,6 @@ export default function App() {
   const explorerGitDecorations = usePreferencesStore(
     (s) => s.explorerGitDecorations,
   );
-  const sidebarPosition = usePreferencesStore((s) => s.sidebarPosition);
 
   const openPreviewTab = useCallback(
     (url: string) => {
@@ -743,6 +761,7 @@ export default function App() {
       }
       setActiveId(tabId);
       focusPane(tabId, leafId);
+      useAgentStore.getState().acknowledge(leafId);
     },
     [setActiveId, focusPane, setActiveProjectForNewTabs],
   );
@@ -766,7 +785,7 @@ export default function App() {
       },
       "space.next": () => cycleSpace(1),
       "space.prev": () => cycleSpace(-1),
-      "space.overview": () => setSwitcherOpen(true),
+      "space.overview": openProjects,
       "pane.splitRight": () => splitActivePaneInActiveTab("row"),
       "pane.splitDown": () => splitActivePaneInActiveTab("col"),
       "pane.focusNext": () => {
@@ -823,6 +842,7 @@ export default function App() {
       openNewEditor,
       openPreviewTab,
       activeProjectId,
+      openProjects,
       selectByIndex,
       splitActivePaneInActiveTab,
       focusNextPaneInTab,
@@ -1008,7 +1028,6 @@ export default function App() {
   const openAddProject = useCallback((spaceId: string) => {
     setProjectDialogError(null);
     setProjectDialog({ mode: "add", spaceId });
-    setSwitcherOpen(false);
   }, []);
 
   const openLocateProject = useCallback((projectId: string) => {
@@ -1018,7 +1037,6 @@ export default function App() {
     if (!project) return;
     setProjectDialogError(null);
     setProjectDialog({ mode: "locate", spaceId: project.spaceId, projectId });
-    setSwitcherOpen(false);
   }, []);
 
   const browseProjectFolder = useCallback(async () => {
@@ -1198,10 +1216,11 @@ export default function App() {
     [deleteSpaceConfirmed, requestHierarchyClose],
   );
 
-  const spaceSwitcher = (
-    <SpaceSwitcher
-      open={switcherOpen}
-      onOpenChange={setSwitcherOpen}
+  const projectsPanel = (
+    <ProjectSidebar
+      open={!projectSidebar.collapsed}
+      tabs={tabs}
+      activeBranch={sourceControl.status?.branch}
       onNewSpace={() => void handleNewSpace()}
       onDeleteSpace={requestSpaceDeletion}
       onAddProject={openAddProject}
@@ -1246,7 +1265,7 @@ export default function App() {
               (project) => project.spaceId === activeSpaceId,
             ),
             activeProjectId,
-            openSpacesOverview: () => setSwitcherOpen(true),
+            openSpacesOverview: openProjects,
             newSpace: () => void handleNewSpace(),
             switchSpace: (id) => useSpaces.getState().setActiveSpace(id),
             switchProject: selectProject,
@@ -1274,6 +1293,7 @@ export default function App() {
       projects,
       selectProject,
       handleNewSpace,
+      openProjects,
     ],
   );
 
@@ -1329,10 +1349,7 @@ export default function App() {
       }}
     >
       <div
-        className={cn(
-          "flex h-full min-h-0 flex-col border-border/60 bg-card",
-          sidebarPosition === "left" ? "border-r" : "border-l",
-        )}
+        className={`pide-sidebar-content pide-sidebar-right h-full min-h-0 flex-col border-l border-border/60 bg-card ${sidebarCollapsed ? "hidden" : "flex"}`}
       >
         <div key={sidebarView} className="min-h-0 flex-1 pide-panel-in">
           {sidebarView === "explorer" ? (
@@ -1366,7 +1383,6 @@ export default function App() {
       </div>
     </ResizablePanel>
   );
-  const sidebarOnLeft = sidebarLayoutOrder(sidebarPosition)[0] === "sidebar";
 
   const shell = (
     <ThemeProvider>
@@ -1388,10 +1404,23 @@ export default function App() {
               onRename={handleRenameTab}
               onReorder={reorderTabByGap}
               onToggleSidebar={toggleSidebar}
+              onToggleProjects={projectSidebar.toggle}
+              projectsCollapsed={projectSidebar.collapsed}
+              sidebarCollapsed={sidebarCollapsed}
               onOpenCommandPalette={() => openCommandPalette("commands")}
               onActivateAgent={onActivateAgent}
               onOpenSettings={() => void openSettingsWindow()}
-              spaceSwitcher={spaceSwitcher}
+              spaceSwitcher={
+                <button
+                  type="button"
+                  onClick={openProjects}
+                  title="Show Projects"
+                  className="max-w-48 truncate rounded px-2 py-1 text-xs text-muted-foreground hover:bg-accent"
+                >
+                  {activeSpace?.name ?? "Spaces"}
+                  {activeProject ? ` / ${activeProject.name}` : ""}
+                </button>
+              }
               searchTarget={searchTarget}
               searchRef={searchInlineRef}
               creationDisabled={!projectAvailable}
@@ -1401,17 +1430,35 @@ export default function App() {
 
           <main className="zoom-content flex min-h-0 flex-1 flex-col">
             <ResizablePanelGroup
+              onPointerDownCapture={(event) => {
+                if (
+                  event.target instanceof Element &&
+                  event.target.closest('[data-slot="resizable-handle"]')
+                ) {
+                  cancelSidebarMotion(event.currentTarget);
+                }
+              }}
               orientation="horizontal"
               className="min-h-0 flex-1"
             >
-              {sidebarOnLeft && sidebarPanel}
-              {sidebarOnLeft && <ResizableHandle key="handle" withHandle />}
               <ResizablePanel
-                key="workspace"
-                id="workspace"
-                defaultSize="78%"
-                minSize="30%"
+                id="projects"
+                panelRef={projectSidebar.panelRef}
+                defaultSize={
+                  projectSidebar.initial.collapsed
+                    ? "0px"
+                    : `${projectSidebar.initial.width}px`
+                }
+                minSize={`${PROJECT_PANEL.minWidth}px`}
+                maxSize={`${PROJECT_PANEL.maxWidth}px`}
+                collapsible
+                collapsedSize={0}
+                onResize={projectSidebar.onResize}
               >
+                {projectsPanel}
+              </ResizablePanel>
+              <ResizableHandle key="projects-handle" withHandle />
+              <ResizablePanel key="workspace" id="workspace" minSize="30%">
                 <div className="flex h-full min-h-0 flex-col">
                   <div className="relative min-h-0 flex-1">
                     <WorkspaceSurface
@@ -1459,8 +1506,8 @@ export default function App() {
                   />
                 </div>
               </ResizablePanel>
-              {!sidebarOnLeft && <ResizableHandle key="handle" withHandle />}
-              {!sidebarOnLeft && sidebarPanel}
+              <ResizableHandle key="tools-handle" withHandle />
+              {sidebarPanel}
             </ResizablePanelGroup>
           </main>
 

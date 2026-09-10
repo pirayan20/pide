@@ -1,8 +1,9 @@
-export type AgentStatus = "working" | "waiting";
+export type AgentStatus = "idle" | "working" | "waiting" | "finished" | "error";
 
 export type AgentSignalKind =
   | "started"
   | "working"
+  | "idle"
   | "attention"
   | "finished"
   | "error"
@@ -15,7 +16,7 @@ export type AgentSignal = {
   /** Set on title-derived signals emitted by the frontend tracker; absent on
    * Rust detector signals, whose explicit markers are authoritative. */
   synthetic?: boolean;
-  /** Initial status for synthetic started signals (default "working"). */
+  /** Initial status for synthetic started signals (default "idle"). */
   status?: AgentStatus;
 };
 

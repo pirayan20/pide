@@ -4,6 +4,7 @@ import {
   keepAwakeEligible,
   nextStaleDeadline,
 } from "./keepAwake";
+import { useAgentStore } from "../store/agentStore";
 import type { AgentSession } from "./types";
 
 function session(overrides: Partial<AgentSession>): AgentSession {
@@ -41,13 +42,23 @@ describe("keepAwakeEligible", () => {
     ).toBe(false);
   });
 
-  it("ignores sessions stuck working past the stale cap", () => {
+  it("goes stale after the cap with no activity refresh", () => {
     const now = KEEP_AWAKE_STALE_AFTER_MS + 1000;
-    expect(keepAwakeEligible([session({ lastActivityAt: 0 })], true, now)).toBe(
-      false,
-    );
     expect(
-      keepAwakeEligible([session({ lastActivityAt: 1000 })], true, now),
+      keepAwakeEligible([session({ lastActivityAt: 0 })], true, now),
+    ).toBe(false);
+  });
+
+  it("stays eligible while the heartbeat refreshes activity", () => {
+    // Simulates a long turn: heartbeat touches lastActivityAt while the pty
+    // emits output. The cap must measure silence, not time since start.
+    const touchedAt = 1000;
+    expect(
+      keepAwakeEligible(
+        [session({ lastActivityAt: touchedAt })],
+        true,
+        KEEP_AWAKE_STALE_AFTER_MS + 500,
+      ),
     ).toBe(true);
   });
 
@@ -72,5 +83,33 @@ describe("nextStaleDeadline", () => {
     const now = KEEP_AWAKE_STALE_AFTER_MS + 10;
     expect(nextStaleDeadline([session({ lastActivityAt: 0 })], now)).toBe(null);
     expect(nextStaleDeadline([], 0)).toBe(null);
+  });
+});
+
+describe("agentStore touch", () => {
+  it("refreshes lastActivityAt for a working session", () => {
+    useAgentStore.setState({ sessions: {} });
+    useAgentStore.getState().start(7, 1, "claude");
+    useAgentStore.getState().setStatus(7, "working");
+    const before = useAgentStore.getState().sessions[7].lastActivityAt;
+    useAgentStore.getState().touch(7);
+    const after = useAgentStore.getState().sessions[7].lastActivityAt;
+    expect(after).toBeGreaterThanOrEqual(before);
+    expect(useAgentStore.getState().sessions[7].status).toBe("working");
+    useAgentStore.setState({ sessions: {} });
+  });
+
+  it("does not touch waiting sessions", () => {
+    useAgentStore.setState({ sessions: {} });
+    useAgentStore.getState().start(8, 1, "claude");
+    useAgentStore.getState().setStatus(8, "waiting");
+    const frozen = useAgentStore.getState().sessions[8].lastActivityAt;
+    useAgentStore.getState().touch(8);
+    expect(useAgentStore.getState().sessions[8].lastActivityAt).toBe(frozen);
+    useAgentStore.setState({ sessions: {} });
+  });
+
+  it("ignores unknown leaves", () => {
+    expect(() => useAgentStore.getState().touch(999)).not.toThrow();
   });
 });

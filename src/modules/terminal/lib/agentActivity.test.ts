@@ -8,7 +8,7 @@ import {
 
 describe("phaseForSignal", () => {
   it("maps lifecycle kinds to phases", () => {
-    expect(phaseForSignal("started")).toBe("working");
+    expect(phaseForSignal("started")).toBe("idle");
     expect(phaseForSignal("working")).toBe("working");
     expect(phaseForSignal("attention")).toBe("attention");
     expect(phaseForSignal("error")).toBe("attention");
@@ -127,7 +127,7 @@ describe("agent name tracking", () => {
   it("start records phase and agent; clear drops both", () => {
     const s = useAgentActivityStore.getState();
     s.start(1, "pi");
-    expect(useAgentActivityStore.getState().phases[1]).toBe("working");
+    expect(useAgentActivityStore.getState().phases[1]).toBe("idle");
     expect(useAgentActivityStore.getState().agents[1]).toBe("pi");
     useAgentActivityStore.getState().clear(1);
     expect(useAgentActivityStore.getState().phases[1]).toBeUndefined();

@@ -62,13 +62,13 @@ function StatusRow({
         )}
       >
         {waiting ? <span className="size-1.5 rounded-full bg-primary" /> : null}
-        {waiting ? "waiting" : "working"}
+        {status === "finished" ? "finished, unread" : status}
       </span>
     </button>
   );
 }
 
-const HOOK_AGENTS = ["claude", "codex", "gemini", "pi"] as const;
+const HOOK_AGENTS = ["claude", "codex", "gemini", "pi", "omp"] as const;
 
 function HookAgentRow({
   id,
@@ -133,7 +133,7 @@ export function NotificationBell({ onActivate }: Props) {
 
   const active = useMemo(() => Object.values(sessions), [sessions]);
   const activeCount = active.length;
-  const badge = active.filter((s) => s.status === "waiting").length;
+  const badge = active.filter((s) => ["waiting", "finished", "error"].includes(s.status)).length;
   const enabledCount = HOOK_AGENTS.filter((id) => hooks[id] === true).length;
 
   const refreshHooks = () => {

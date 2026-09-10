@@ -42,7 +42,7 @@ vi.mock("../lib/route", () => ({
 vi.mock("../lib/keepAwake", () => ({ initKeepAwake: () => () => {} }));
 
 import type { Tab } from "@/modules/tabs";
-import { useAgentStore } from "../store/agentStore";
+import { nextAttentionTarget, useAgentStore } from "../store/agentStore";
 import { handleSignal } from "./AgentNotificationsBridge";
 
 const tabs = [
@@ -71,7 +71,11 @@ describe("handleSignal session revival after webview reload", () => {
     terminal.leaves.set(1, 10);
     handleSignal({ id: 1, kind: "finished", agent: null }, ctx);
     const session = useAgentStore.getState().sessions[10];
-    expect(session).toMatchObject({ agent: "pi", tabId: 5, status: "waiting" });
+    expect(session).toMatchObject({
+      agent: "pi",
+      tabId: 5,
+      status: "finished",
+    });
     expect(routed.calls).toEqual([{ agent: "pi", title: "Pi finished" }]);
   });
 
@@ -88,4 +92,59 @@ describe("handleSignal session revival after webview reload", () => {
     handleSignal({ id: 1, kind: "working", agent: null }, ctx);
     expect(useAgentStore.getState().sessions[10]?.agent).toBe("claude");
   });
+});
+
+describe("agent status lifecycle", () => {
+  beforeEach(() => {
+    useAgentStore.setState({ sessions: {} });
+    terminal.agents.set(1, "claude");
+    terminal.leaves.set(1, 10);
+    terminal.agents.set(2, "codex");
+    terminal.leaves.set(2, 20);
+  });
+
+  it("starts idle, works only on a working signal, and acknowledges completion per leaf", () => {
+    const signal = (id: number, kind: "started" | "working" | "finished") =>
+      handleSignal({ id, kind, agent: "claude" }, ctx);
+    signal(1, "started");
+    expect(useAgentStore.getState().sessions[10].status).toBe("idle");
+    signal(1, "working");
+    signal(1, "started");
+    expect(useAgentStore.getState().sessions[10].status).toBe("working");
+    signal(1, "finished");
+    signal(2, "finished");
+    useAgentStore.getState().acknowledge(10);
+    expect(useAgentStore.getState().sessions[10].status).toBe("idle");
+    expect(useAgentStore.getState().sessions[20].status).toBe("finished");
+    signal(1, "working");
+    signal(1, "finished");
+    expect(useAgentStore.getState().sessions[10].status).toBe("finished");
+  });
+
+  it("never dismisses an input request on acknowledgement, but allows error acknowledgement", () => {
+    handleSignal({ id: 1, kind: "attention", agent: null }, ctx);
+    useAgentStore.getState().acknowledge(10);
+    expect(useAgentStore.getState().sessions[10].status).toBe("waiting");
+    handleSignal({ id: 1, kind: "working", agent: null }, ctx);
+    expect(useAgentStore.getState().sessions[10].status).toBe("working");
+    handleSignal({ id: 1, kind: "error", agent: null }, ctx);
+    expect(useAgentStore.getState().sessions[10].status).toBe("error");
+    useAgentStore.getState().acknowledge(10);
+    expect(useAgentStore.getState().sessions[10].status).toBe("idle");
+  });
+});
+
+
+it("selects attention only within the requested project tabs, with input first", () => {
+  useAgentStore.setState({ sessions: {} });
+  const store = useAgentStore.getState();
+  store.start(10, 1, "claude");
+  store.setStatus(10, "finished");
+  store.start(20, 2, "codex");
+  store.setStatus(20, "waiting");
+  expect(nextAttentionTarget()).toEqual({ leafId: 20, tabId: 2 });
+  expect(nextAttentionTarget([1])).toEqual({ leafId: 10, tabId: 1 });
+  store.acknowledge(10);
+  expect(nextAttentionTarget([1])).toBeNull();
+  expect(nextAttentionTarget([])).toBeNull();
 });

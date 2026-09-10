@@ -50,12 +50,21 @@ describe("labelFor (agent context)", () => {
     expect(labelFor(tab(), { name: "pi", oscTitle: null })).toBe(
       "Pi - pide-ai",
     );
+    expect(labelFor(tab(), { name: "omp", oscTitle: null })).toBe(
+      "OMP - pide-ai",
+    );
   });
 
   it("prefers a useful agent osc title", () => {
     expect(labelFor(tab(), { name: "claude", oscTitle: "Fix flaky tests" })).toBe(
       "Fix flaky tests",
     );
+    expect(
+      labelFor(tab(), {
+        name: "omp",
+        oscTitle: "π > Fix agent titles",
+      }),
+    ).toBe("π > Fix agent titles");
   });
 
   it("rejects trivial osc titles (cwd, folder, shells, paths)", () => {

@@ -1,11 +1,17 @@
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { invoke } from "@tauri-apps/api/core";
 import { useAgentStore } from "../store/agentStore";
+import { ptyIdForLeaf } from "@/modules/terminal/lib/useTerminalSession";
 import type { AgentSession } from "./types";
 
-/** A session stuck "working" with no state change for this long no longer
- * holds the machine awake, so an abandoned agent cannot block sleep forever. */
-export const KEEP_AWAKE_STALE_AFTER_MS = 2 * 60 * 60 * 1000;
+/** A session stuck "working" with no activity for this long no longer holds
+ * the machine awake. The heartbeat below refreshes lastActivityAt while the
+ * pty still emits output, so this cap only ever fires on true silence - a
+ * hung or abandoned agent. Must stay longer than the longest silent agent
+ * thinking phase (no PTY bytes at all), which is why it is minutes not seconds. */
+export const KEEP_AWAKE_STALE_AFTER_MS = 10 * 60 * 1000;
+/** How often the heartbeat polls pty output recency while sessions exist. */
+const HEARTBEAT_INTERVAL_MS = 30_000;
 
 export function keepAwakeEligible(
   sessions: AgentSession[],
@@ -40,6 +46,27 @@ export function nextStaleDeadline(
 
 let applied = false;
 let timer: ReturnType<typeof setTimeout> | null = null;
+let heartbeat: ReturnType<typeof setInterval> | null = null;
+
+async function heartbeatTick(): Promise<void> {
+  const store = useAgentStore.getState();
+  const working = Object.values(store.sessions).filter(
+    (s) => s.status === "working",
+  );
+  for (const s of working) {
+    const ptyId = ptyIdForLeaf(s.leafId);
+    if (ptyId === null) continue;
+    const active = await invoke<boolean>("pty_agent_recently_active", {
+      id: ptyId,
+    }).catch(() => false);
+    if (active) store.touch(s.leafId);
+  }
+  // Re-assert while held so the backend re-evaluates its display gate: an
+  // agent that started on AC must stop pinning the screen once unplugged.
+  if (applied) {
+    await invoke("set_keep_awake", { active: true }).catch(() => {});
+  }
+}
 
 function evaluate(): void {
   const enabled = usePreferencesStore.getState().agentKeepAwake;
@@ -65,6 +92,9 @@ function evaluate(): void {
 export function initKeepAwake(): () => void {
   const unsubAgents = useAgentStore.subscribe(evaluate);
   const unsubPrefs = usePreferencesStore.subscribe(evaluate);
+  heartbeat = setInterval(() => {
+    void heartbeatTick();
+  }, HEARTBEAT_INTERVAL_MS);
   evaluate();
   return () => {
     unsubAgents();
@@ -72,6 +102,10 @@ export function initKeepAwake(): () => void {
     if (timer) {
       clearTimeout(timer);
       timer = null;
+    }
+    if (heartbeat) {
+      clearInterval(heartbeat);
+      heartbeat = null;
     }
     if (applied) {
       applied = false;

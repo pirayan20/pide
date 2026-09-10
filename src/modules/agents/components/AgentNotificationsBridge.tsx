@@ -110,10 +110,15 @@ export function handleSignal(sig: AgentSignal, ctx: Ctx): void {
     case "started": {
       const info = tabInfo(ctx.tabs, leafId);
       if (!info) return;
+      if (store.sessions[leafId]) return;
       store.start(leafId, info.tabId, sig.agent ?? "agent", info.context);
-      if (sig.status === "waiting") store.setStatus(leafId, "waiting");
+      if (sig.status) store.setStatus(leafId, sig.status);
       return;
     }
+    case "idle":
+      if (store.sessions[leafId]?.status === "waiting")
+        store.setStatus(leafId, "idle");
+      return;
     case "working":
       reviveSession(leafId, sig.id, ctx);
       // Explicit 777 markers outrank title heuristics from here on. OSC 9
@@ -133,7 +138,7 @@ export function handleSignal(sig: AgentSignal, ctx: Ctx): void {
     case "error": {
       reviveSession(leafId, sig.id, ctx);
       if (!sig.synthetic) store.markHookDriven(leafId);
-      store.setStatus(leafId, "waiting");
+      store.setStatus(leafId, sig.kind);
       const session = useAgentStore.getState().sessions[leafId];
       if (session) route(session, sig.kind, ctx);
       return;
@@ -156,6 +161,58 @@ export function AgentNotificationsBridge({
   const focused = useWindowFocus();
   const ctxRef = useRef<Ctx>({ tabs, activeId, focused, onActivate });
   ctxRef.current = { tabs, activeId, focused, onActivate };
+
+  const activeTab = tabs.find((tab) => tab.id === activeId);
+  const activeLeaf =
+    activeTab?.kind === "terminal" ? activeTab.activeLeafId : null;
+  useEffect(() => {
+    if (focused && activeLeaf != null)
+      useAgentStore.getState().acknowledge(activeLeaf);
+  }, [focused, activeLeaf]);
+
+  useEffect(() => {
+    const acknowledgeInteraction = (event: Event) => {
+      if (!ctxRef.current.focused || !(event.target instanceof Element)) return;
+      const pane = event.target.closest<HTMLElement>("[data-pane-leaf]");
+      const tab = pane?.closest<HTMLElement>("[data-terminal-tab]");
+      if (
+        !pane ||
+        !tab ||
+        Number(tab.dataset.terminalTab) !== ctxRef.current.activeId
+      )
+        return;
+      useAgentStore.getState().acknowledge(Number(pane.dataset.paneLeaf));
+    };
+    document.addEventListener("pointerdown", acknowledgeInteraction);
+    document.addEventListener("keydown", acknowledgeInteraction);
+    document.addEventListener("focusin", acknowledgeInteraction);
+    return () => {
+      document.removeEventListener("pointerdown", acknowledgeInteraction);
+      document.removeEventListener("keydown", acknowledgeInteraction);
+      document.removeEventListener("focusin", acknowledgeInteraction);
+    };
+  }, []);
+
+  useEffect(
+    () =>
+      useAgentStore.subscribe((state, previous) => {
+        for (const session of Object.values(state.sessions)) {
+          if (session.status === previous.sessions[session.leafId]?.status)
+            continue;
+          const ptyId = ptyIdForLeaf(session.leafId);
+          if (ptyId === null) continue;
+          useAgentActivityStore
+            .getState()
+            .setPhase(
+              ptyId,
+              session.status === "waiting" || session.status === "error"
+                ? "attention"
+                : session.status,
+            );
+        }
+      }),
+    [],
+  );
 
   const prevFocused = useRef(focused);
   useEffect(() => {

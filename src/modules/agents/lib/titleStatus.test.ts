@@ -24,6 +24,14 @@ describe("detectAgentStatusFromTitle", () => {
     expect(detectAgentStatusFromTitle("◇ Gemini CLI")).toBe("idle");
   });
 
+  it("recognizes Oh My Pi's branded state titles", () => {
+    expect(detectAgentStatusFromTitle("π ⠋ Fix agent titles")).toBe("working");
+    expect(detectAgentStatusFromTitle("π > Fix agent titles")).toBe("idle");
+    expect(detectAgentStatusFromTitle("π ! Fix agent titles")).toBe(
+      "permission",
+    );
+  });
+
   it("uses keywords only next to a known agent name", () => {
     expect(detectAgentStatusFromTitle("codex working")).toBe("working");
     expect(detectAgentStatusFromTitle("claude - action required")).toBe(
@@ -59,6 +67,11 @@ describe("agentLabelFromTitle", () => {
     expect(agentLabelFromTitle("claude.exe thinking")).toBe("Claude Code");
   });
 
+  it("names Oh My Pi from its branded titles", () => {
+    expect(agentLabelFromTitle("π > Fix agent titles")).toBe("OMP");
+    expect(agentLabelFromTitle("π ⠧ Fix agent titles")).toBe("OMP");
+  });
+
   it("returns null for anonymous spinner frames", () => {
     expect(agentLabelFromTitle("⠧ Fixing tests")).toBe(null);
   });
@@ -89,7 +102,7 @@ describe("titleTransitionEvents", () => {
       { kind: "started", status: "working" },
     ]);
     expect(titleTransitionEvents(null, "idle", false)).toEqual([
-      { kind: "started", status: "waiting" },
+      { kind: "started", status: "idle" },
     ]);
   });
 
@@ -97,7 +110,7 @@ describe("titleTransitionEvents", () => {
     expect(titleTransitionEvents("working", "idle", true)).toEqual([
       { kind: "finished" },
     ]);
-    expect(titleTransitionEvents("permission", "idle", true)).toEqual([]);
+    expect(titleTransitionEvents("permission", "idle", true)).toEqual([{ kind: "idle" }]);
   });
 
   it("asks for attention on entering permission", () => {

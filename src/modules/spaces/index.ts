@@ -1,4 +1,4 @@
-export { SpaceSwitcher } from "./SpaceSwitcher";
+export { ProjectSidebar } from "./ProjectSidebar";
 export { ProjectPathDialog } from "./ProjectPathDialog";
 export { ProjectStateView } from "./ProjectStateView";
 export { SpaceAvatar } from "./SpaceAvatar";
