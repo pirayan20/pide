@@ -24,13 +24,6 @@ import {
 import { resolveDisplayName } from "@/modules/editor/lib/languageResolver";
 import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
 import {
-  leafIds,
-  pickTabAgent,
-  ptyIdForLeaf,
-  useAgentActivityStore,
-  useLeafTitleStore,
-} from "@/modules/terminal";
-import {
   Cancel01Icon,
   Clock01Icon,
   ComputerTerminal02Icon,
@@ -52,7 +45,8 @@ import {
   useState,
 } from "react";
 import { AgentTabBadge } from "./AgentTabBadge";
-import { labelFor, type TabAgentContext } from "./lib/tabLabel";
+import { labelFor } from "./lib/tabLabel";
+import { useTabAgentContext } from "@/modules/tabs/lib/useTabAgentContext";
 import type { EditorTab, Tab } from "./lib/useTabs";
 
 type Props = {
@@ -632,29 +626,13 @@ function DropIndicator() {
   );
 }
 
-function useTabAgentContext(tab: Tab): TabAgentContext | null {
-  const phases = useAgentActivityStore((s) => s.phases);
-  const agents = useAgentActivityStore((s) => s.agents);
-  const titles = useLeafTitleStore((s) => s.titles);
-  if (tab.kind !== "terminal" || tab.private) return null;
-  const pairs: Array<readonly [number, number]> = [];
-  for (const leaf of leafIds(tab.paneTree)) {
-    const ptyId = ptyIdForLeaf(leaf);
-    if (ptyId !== null) pairs.push([leaf, ptyId] as const);
-  }
-  const picked = pickTabAgent(phases, agents, pairs);
-  return picked
-    ? { name: picked.agent, oscTitle: titles[picked.leafId] ?? null }
-    : null;
-}
-
 function TabLabel({ tab }: { tab: Tab }) {
   const agent = useTabAgentContext(tab);
   return <>{labelFor(tab, agent)}</>;
 }
 
 export function TabIcon({ tab }: { tab: Tab }) {
-  const agent = useTabAgentContext(tab);
+  const agent = useTabAgentContext(tab, false);
   if (agent && tab.kind === "terminal") {
     return <AgentIcon agent={agent.name} size={14} className="shrink-0" />;
   }

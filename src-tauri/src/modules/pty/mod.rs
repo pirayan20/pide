@@ -1,5 +1,6 @@
 mod agent_detect;
 mod da_filter;
+mod output;
 mod session;
 pub(crate) mod shell_init;
 
@@ -313,6 +314,26 @@ pub fn pty_agent_states(state: tauri::State<'_, PtyState>) -> HashMap<u32, Strin
         .iter()
         .filter_map(|(id, s)| s.agent.lock().unwrap().clone().map(|a| (*id, a)))
         .collect()
+}
+
+/// True when this pty produced output within the window.
+/// The keep-awake heartbeat polls this: output recency is the only honest
+/// "agent is actually working" signal once status transitions stop firing.
+#[tauri::command]
+pub fn pty_agent_recently_active(
+    state: tauri::State<'_, PtyState>,
+    id: u32,
+) -> bool {
+    const RECENT_WINDOW: std::time::Duration = std::time::Duration::from_secs(30);
+    let sessions = state.sessions.read().unwrap();
+    let Some(s) = sessions.get(&id) else {
+        return false;
+    };
+    // No agent-armed gate here: title-detected agents (aider, opencode, jcode,
+    // ...) never arm the Rust detector, and the caller already filters to
+    // sessions it believes are working. Output recency is the whole signal.
+    let recent = s.last_output.lock().unwrap().elapsed() <= RECENT_WINDOW;
+    recent
 }
 
 #[tauri::command]

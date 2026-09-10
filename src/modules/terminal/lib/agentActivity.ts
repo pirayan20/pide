@@ -33,7 +33,7 @@ export const useAgentActivityStore = create<AgentActivityStore>((set) => ({
     }),
   start: (id, agent) =>
     set((s) => ({
-      phases: { ...s.phases, [id]: "working" },
+      phases: { ...s.phases, [id]: s.phases[id] ?? "idle" },
       agents: { ...s.agents, [id]: agent },
     })),
   seed: (id, agent) =>
@@ -52,17 +52,6 @@ export const useAgentActivityStore = create<AgentActivityStore>((set) => ({
     }),
 }));
 
-const FINISHED_TTL_MS = 6000;
-const finishedTimers = new Map<number, ReturnType<typeof setTimeout>>();
-
-function clearFinishedTimer(id: number): void {
-  const t = finishedTimers.get(id);
-  if (t) {
-    clearTimeout(t);
-    finishedTimers.delete(id);
-  }
-}
-
 let onExited: ((ptyId: number) => void) | null = null;
 let bound = false;
 
@@ -70,9 +59,11 @@ let bound = false;
  * pty, or `null` to ignore. Pure so the mapping stays unit-testable. */
 export function phaseForSignal(
   kind: string,
-): Exclude<AgentPhase, "idle"> | "exited" | null {
+): AgentPhase | "exited" | null {
   switch (kind) {
     case "started":
+    case "idle":
+      return "idle";
     case "working":
       return "working";
     case "attention":
@@ -109,7 +100,6 @@ export function ensureAgentActivityListener(
     const { id } = e.payload;
     const action = phaseForSignal(e.payload.kind);
     if (action === null) return;
-    clearFinishedTimer(id);
     const store = useAgentActivityStore.getState();
     if (action === "exited") {
       store.clear(id);
@@ -119,20 +109,12 @@ export function ensureAgentActivityListener(
     if (e.payload.kind === "started") {
       store.start(id, e.payload.agent ?? "agent");
       // Title-derived sessions can begin at rest (e.g. Claude's idle title).
-      if (e.payload.status === "waiting") store.setPhase(id, "idle");
+      if (e.payload.status === "working") store.setPhase(id, "working");
+      if (e.payload.status === "waiting") store.setPhase(id, "attention");
     } else {
       store.setPhase(id, action);
     }
-    if (action === "finished") {
-      finishedTimers.set(
-        id,
-        setTimeout(() => {
-          finishedTimers.delete(id);
-          const s = useAgentActivityStore.getState();
-          if (s.phases[id] === "finished") s.setPhase(id, "idle");
-        }, FINISHED_TTL_MS),
-      );
-    }
+
   });
 }
 

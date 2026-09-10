@@ -91,6 +91,32 @@ export default function (pi: ExtensionAPI) {
 }
 "#;
 
+const OMP_EXTENSION_DIR: &str = ".omp/agent/extensions";
+const OMP_EXTENSION_FILE: &str = "pide-notifications.ts";
+const OMP_EXTENSION_MARKER: &str = "pide-omp-notifications-v1";
+const OMP_STATUS_NEEDLES: [&str; 6] = [
+    OMP_EXTENSION_MARKER,
+    "agent_start",
+    "agent_end",
+    "notify;Pide;omp;${event}",
+    "emit(\"working\")",
+    "emit(\"finished\")",
+];
+const OMP_EXTENSION: &str = r#"// pide-omp-notifications-v1
+import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
+
+export default function (pi: ExtensionAPI) {
+  const emit = (event: "working" | "finished") => {
+    if (process.env.PIDE_TERMINAL) {
+      process.stdout.write(`\u001b]777;notify;Pide;omp;${event}\u0007`);
+    }
+  };
+
+  pi.on("agent_start", () => emit("working"));
+  pi.on("agent_end", () => emit("finished"));
+}
+"#;
+
 fn find(agent: &str) -> Result<&'static AgentSpec, String> {
     AGENTS
         .iter()
@@ -216,17 +242,23 @@ fn pi_extension_path() -> Result<std::path::PathBuf, String> {
     home_path(PI_EXTENSION_DIR, PI_EXTENSION_FILE)
 }
 
-fn pi_extension_contents(
+fn omp_extension_path() -> Result<std::path::PathBuf, String> {
+    home_path(OMP_EXTENSION_DIR, OMP_EXTENSION_FILE)
+}
+
+fn managed_extension_contents(
     existing: Option<&str>,
     path: &std::path::Path,
+    marker: &str,
+    extension: &'static str,
 ) -> Result<&'static str, String> {
-    if existing.is_some_and(|s| !s.trim().is_empty() && !s.contains(PI_EXTENSION_MARKER)) {
+    if existing.is_some_and(|s| !s.trim().is_empty() && !s.contains(marker)) {
         return Err(format!(
             "{} is not managed by Pide; refusing to overwrite",
             path.display()
         ));
     }
-    Ok(PI_EXTENSION)
+    Ok(extension)
 }
 
 fn write_atomic(path: &std::path::Path, contents: &str) -> Result<(), String> {
@@ -239,7 +271,7 @@ fn write_atomic(path: &std::path::Path, contents: &str) -> Result<(), String> {
 }
 
 // Writing through a symlink must not replace the link with a regular file.
-fn pi_extension_write_path(path: &std::path::Path) -> Result<std::path::PathBuf, String> {
+fn managed_extension_write_path(path: &std::path::Path) -> Result<std::path::PathBuf, String> {
     match std::fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
             std::fs::canonicalize(path).map_err(|e| format!("resolve {}: {e}", path.display()))
@@ -250,27 +282,46 @@ fn pi_extension_write_path(path: &std::path::Path) -> Result<std::path::PathBuf,
     }
 }
 
-fn enable_pi_extension_at(path: &std::path::Path) -> Result<(), String> {
+fn enable_managed_extension_at(
+    path: &std::path::Path,
+    marker: &str,
+    extension: &'static str,
+) -> Result<(), String> {
     let dir = path.parent().unwrap();
     std::fs::create_dir_all(dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
     let existing = match std::fs::read_to_string(path) {
-        Ok(s) if s == PI_EXTENSION => return Ok(()),
+        Ok(s) if s == extension => return Ok(()),
         Ok(s) => Some(s),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(e) => return Err(format!("read {}: {e}", path.display())),
     };
-    let contents = pi_extension_contents(existing.as_deref(), path)?;
-    write_atomic(&pi_extension_write_path(path)?, contents)
+    let contents = managed_extension_contents(existing.as_deref(), path, marker, extension)?;
+    write_atomic(&managed_extension_write_path(path)?, contents)
+}
+
+fn enable_pi_extension_at(path: &std::path::Path) -> Result<(), String> {
+    enable_managed_extension_at(path, PI_EXTENSION_MARKER, PI_EXTENSION)
 }
 
 fn enable_pi_extension() -> Result<(), String> {
     enable_pi_extension_at(&pi_extension_path()?)
 }
 
+fn enable_omp_extension_at(path: &std::path::Path) -> Result<(), String> {
+    enable_managed_extension_at(path, OMP_EXTENSION_MARKER, OMP_EXTENSION)
+}
+
+fn enable_omp_extension() -> Result<(), String> {
+    enable_omp_extension_at(&omp_extension_path()?)
+}
+
 #[tauri::command]
 pub fn agent_enable_hooks(agent: String) -> Result<(), String> {
     if agent == "pi" {
         return enable_pi_extension();
+    }
+    if agent == "omp" {
+        return enable_omp_extension();
     }
     let spec = find(&agent)?;
     let path = settings_path(spec)?;
@@ -326,6 +377,16 @@ pub fn agent_hooks_status(agent: String) -> bool {
             .and_then(|p| std::fs::read_to_string(p).ok())
             .is_some_and(|content| {
                 PI_STATUS_NEEDLES
+                    .iter()
+                    .all(|needle| content.contains(needle))
+            });
+    }
+    if agent == "omp" {
+        return omp_extension_path()
+            .ok()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .is_some_and(|content| {
+                OMP_STATUS_NEEDLES
                     .iter()
                     .all(|needle| content.contains(needle))
             });
@@ -494,7 +555,8 @@ mod tests {
     #[test]
     fn pi_extension_emits_named_working_and_finished_markers() {
         let path = std::path::Path::new("/x/pide-notifications.ts");
-        let extension = pi_extension_contents(None, path).unwrap();
+        let extension =
+            managed_extension_contents(None, path, PI_EXTENSION_MARKER, PI_EXTENSION).unwrap();
         for needle in PI_STATUS_NEEDLES {
             assert!(extension.contains(needle), "missing {needle}");
         }
@@ -503,11 +565,65 @@ mod tests {
     }
 
     #[test]
+    fn omp_extension_emits_named_working_and_finished_markers() {
+        let path = std::path::Path::new("/x/pide-notifications.ts");
+        let extension =
+            managed_extension_contents(None, path, OMP_EXTENSION_MARKER, OMP_EXTENSION).unwrap();
+        for needle in OMP_STATUS_NEEDLES {
+            assert!(extension.contains(needle), "missing {needle}");
+        }
+        assert!(extension.contains("@oh-my-pi/pi-coding-agent"));
+        assert!(extension.contains("process.env.PIDE_TERMINAL"));
+        assert!(extension.contains("process.stdout.write"));
+    }
+
+    #[test]
+    fn omp_extension_only_replaces_pide_owned_file() {
+        let path = std::path::Path::new("/x/pide-notifications.ts");
+        assert!(managed_extension_contents(
+            Some("export const mine = true;"),
+            path,
+            OMP_EXTENSION_MARKER,
+            OMP_EXTENSION,
+        )
+        .is_err());
+        assert!(managed_extension_contents(
+            Some(OMP_EXTENSION),
+            path,
+            OMP_EXTENSION_MARKER,
+            OMP_EXTENSION,
+        )
+        .is_ok());
+        assert!(managed_extension_contents(
+            Some("  \n"),
+            path,
+            OMP_EXTENSION_MARKER,
+            OMP_EXTENSION,
+        )
+        .is_ok());
+    }
+
+    #[test]
     fn pi_extension_only_replaces_pide_owned_file() {
         let path = std::path::Path::new("/x/pide-notifications.ts");
-        assert!(pi_extension_contents(Some("export const mine = true;"), path).is_err());
-        assert!(pi_extension_contents(Some(PI_EXTENSION), path).is_ok());
-        assert!(pi_extension_contents(Some("  \n"), path).is_ok());
+        assert!(managed_extension_contents(
+            Some("export const mine = true;"),
+            path,
+            PI_EXTENSION_MARKER,
+            PI_EXTENSION,
+        )
+        .is_err());
+        assert!(managed_extension_contents(
+            Some(PI_EXTENSION),
+            path,
+            PI_EXTENSION_MARKER,
+            PI_EXTENSION,
+        )
+        .is_ok());
+        assert!(
+            managed_extension_contents(Some("  \n"), path, PI_EXTENSION_MARKER, PI_EXTENSION,)
+                .is_ok()
+        );
     }
 
     #[test]

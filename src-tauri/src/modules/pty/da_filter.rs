@@ -43,6 +43,14 @@ impl DaFilter {
         out: &mut Vec<u8>,
         mut respond: F,
     ) {
+        if self.saw_output {
+            out.extend_from_slice(&self.hold);
+            self.hold.clear();
+            self.state = State::Idle;
+            out.extend_from_slice(input);
+            return;
+        }
+
         if matches!(self.state, State::Idle) && !input.contains(&ESC) {
             out.extend_from_slice(input);
             if !input.is_empty() {
@@ -172,6 +180,32 @@ mod tests {
         let mut f = DaFilter::new();
         let (out, replies) = run(&mut f, b"hello world\n");
         assert_eq!(out, b"hello world\n");
+        assert!(replies.is_empty());
+    }
+
+    #[test]
+    fn after_startup_every_chunk_passes_through_without_buffering() {
+        let stream = b"\x1b[32mhello\x1b[0m\r\n\x1b[c\x1b[6n\x1b]52;c;dGVzdA==\x07";
+        for width in 1..=stream.len() {
+            let mut f = DaFilter::new();
+            run(&mut f, b"shell prompt\r\n");
+            for chunk in stream.chunks(width) {
+                let (out, replies) = run(&mut f, chunk);
+                assert_eq!(out, chunk, "post-startup output must not wait for another read");
+                assert!(replies.is_empty());
+                assert!(f.hold.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn startup_partial_sequence_is_preserved_when_switching_to_passthrough() {
+        let mut f = DaFilter::new();
+        let (first, replies) = run(&mut f, b"prompt\x1b[");
+        assert_eq!(first, b"prompt");
+        assert!(replies.is_empty());
+        let (second, replies) = run(&mut f, b"32mhello\x1b[c");
+        assert_eq!(second, b"\x1b[32mhello\x1b[c");
         assert!(replies.is_empty());
     }
 

@@ -1,10 +1,5 @@
 export { SidebarRail, SIDEBAR_RAIL_HEIGHT } from "./SidebarRail";
-export { sidebarLayoutOrder } from "./types";
-export type {
-  SidebarLayoutPart,
-  SidebarPosition,
-  SidebarViewId,
-} from "./types";
+export type { SidebarViewId } from "./types";
 export {
   useSidebarPanel,
   SIDEBAR_MIN_WIDTH,

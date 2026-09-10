@@ -10,7 +10,12 @@ type AgentStoreState = {
     context?: string | null,
   ) => void;
   setStatus: (leafId: number, status: AgentStatus) => void;
+  /** Refresh lastActivityAt without a transition. The keep-awake heartbeat
+   * calls this while the pty still emits output, so staleness measures real
+   * silence instead of time since the working phase began. */
+  touch: (leafId: number) => void;
   markHookDriven: (leafId: number) => void;
+  acknowledge: (leafId: number) => void;
   finish: (leafId: number) => void;
 };
 
@@ -27,7 +32,7 @@ export const useAgentStore = create<AgentStoreState>((set) => ({
             leafId,
             tabId,
             agent,
-            status: "working",
+            status: "idle",
             startedAt: now,
             lastActivityAt: now,
             attentionSince: null,
@@ -50,8 +55,34 @@ export const useAgentStore = create<AgentStoreState>((set) => ({
             ...prev,
             status,
             lastActivityAt: now,
-            attentionSince: status === "waiting" ? now : null,
+            attentionSince: ["waiting", "finished", "error"].includes(status)
+              ? now
+              : null,
           },
+        },
+      };
+    }),
+
+  acknowledge: (leafId) =>
+    set((s) => {
+      const session = s.sessions[leafId];
+      if (!session || !["finished", "error"].includes(session.status)) return s;
+      return {
+        sessions: {
+          ...s.sessions,
+          [leafId]: { ...session, status: "idle", attentionSince: null },
+        },
+      };
+    }),
+
+  touch: (leafId) =>
+    set((s) => {
+      const prev = s.sessions[leafId];
+      if (!prev || prev.status !== "working") return s;
+      return {
+        sessions: {
+          ...s.sessions,
+          [leafId]: { ...prev, lastActivityAt: Date.now() },
         },
       };
     }),
@@ -74,15 +105,24 @@ export const useAgentStore = create<AgentStoreState>((set) => ({
     }),
 }));
 
-/** The tab/leaf of the agent that most recently entered the waiting state, for
- *  the keyboard jump-to-attention shortcut. Null when none is waiting. */
-export function nextAttentionTarget(): {
+/** Input requests precede errors and unread completions; oldest wins ties. */
+export function nextAttentionTarget(tabIds?: readonly number[]): {
   tabId: number;
   leafId: number;
 } | null {
   const waiting = Object.values(useAgentStore.getState().sessions)
-    .filter((s) => s.status === "waiting")
-    .sort((a, b) => (b.attentionSince ?? 0) - (a.attentionSince ?? 0));
+    .filter(
+      (s) =>
+        ["waiting", "error", "finished"].includes(s.status) &&
+        (!tabIds || tabIds.includes(s.tabId)),
+    )
+    .sort((a, b) => {
+      const order = ["waiting", "error", "finished"];
+      return (
+        order.indexOf(a.status) - order.indexOf(b.status) ||
+        (a.attentionSince ?? 0) - (b.attentionSince ?? 0)
+      );
+    });
   const t = waiting[0];
   return t ? { tabId: t.tabId, leafId: t.leafId } : null;
 }

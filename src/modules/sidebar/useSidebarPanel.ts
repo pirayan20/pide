@@ -1,4 +1,8 @@
 import {
+  animateSidebarLayout,
+  isSidebarAnimating,
+} from "@/modules/sidebar/animateSidebarLayout";
+import {
   type RefObject,
   useCallback,
   useEffect,
@@ -68,6 +72,9 @@ export function useSidebarPanel(
     useState<SidebarViewId>(readSidebarView);
   const [initialSidebarCollapsed] = useState(readSidebarCollapsed);
   const collapsedRef = useRef(initialSidebarCollapsed);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    initialSidebarCollapsed,
+  );
 
   const persistSidebarView = useCallback((view: SidebarViewId) => {
     setSidebarViewState(view);
@@ -81,6 +88,7 @@ export function useSidebarPanel(
   const persistSidebarCollapsed = useCallback((collapsed: boolean) => {
     if (collapsedRef.current === collapsed) return;
     collapsedRef.current = collapsed;
+    setSidebarCollapsed(collapsed);
     try {
       window.localStorage.setItem(
         SIDEBAR_COLLAPSED_STORAGE_KEY,
@@ -94,8 +102,11 @@ export function useSidebarPanel(
   const toggleSidebar = useCallback(() => {
     const p = sidebarRef.current;
     if (!p) return;
-    if (p.getSize().asPercentage <= 0) p.resize(`${sidebarWidthRef.current}px`);
-    else p.collapse();
+    animateSidebarLayout("sidebar", () => {
+      if (p.getSize().asPercentage <= 0)
+        p.resize(`${sidebarWidthRef.current}px`);
+      else p.collapse();
+    });
   }, []);
 
   const cycleSidebarView = useCallback(
@@ -103,12 +114,15 @@ export function useSidebarPanel(
       const panel = sidebarRef.current;
       const collapsed = panel ? panel.getSize().asPercentage <= 0 : false;
       if (collapsed) {
-        if (panel) panel.resize(`${sidebarWidthRef.current}px`);
+        if (panel)
+          animateSidebarLayout("sidebar", () =>
+            panel.resize(`${sidebarWidthRef.current}px`),
+          );
         if (view !== sidebarView) persistSidebarView(view);
         return;
       }
       if (view === sidebarView) {
-        panel?.collapse();
+        animateSidebarLayout("sidebar", () => panel?.collapse());
         return;
       }
       persistSidebarView(view);
@@ -117,6 +131,7 @@ export function useSidebarPanel(
   );
 
   const persistSidebarWidth = useCallback((next: number) => {
+    if (isSidebarAnimating("sidebar") || next <= 0) return;
     sidebarWidthRef.current = next;
     if (sidebarWidthWriteTimerRef.current) {
       window.clearTimeout(sidebarWidthWriteTimerRef.current);
@@ -144,7 +159,10 @@ export function useSidebarPanel(
     const panel = sidebarRef.current;
     const collapsed = panel ? panel.getSize().asPercentage <= 0 : false;
     if (sidebarView !== "explorer" || collapsed) {
-      if (panel && collapsed) panel.resize(`${sidebarWidthRef.current}px`);
+      if (panel && collapsed)
+        animateSidebarLayout("sidebar", () =>
+          panel.resize(`${sidebarWidthRef.current}px`),
+        );
       if (sidebarView !== "explorer") persistSidebarView("explorer");
       const active = document.activeElement;
       explorerReturnFocusRef.current =
@@ -176,6 +194,7 @@ export function useSidebarPanel(
     sidebarWidthRef,
     sidebarView,
     initialSidebarCollapsed,
+    sidebarCollapsed,
     persistSidebarView,
     persistSidebarCollapsed,
     toggleSidebar,

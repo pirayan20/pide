@@ -11,6 +11,7 @@ const GEMINI_WORKING = "✦";
 const GEMINI_SILENT_WORKING = "⏲";
 const GEMINI_IDLE = "◇";
 const GEMINI_PERMISSION = "✋";
+const OMP_TITLE_RE = /^π(?:$|:|\s(?:[>!:]|[\u2800-\u28ff])(?:\s|$))/;
 
 // Whole-token matching only: substring matching mis-fires on cwd titles like
 // "~/claude-project" or "opencode-blinker". The boundary guard rejects path
@@ -20,6 +21,7 @@ const AGENT_NAMES = [
   "claude",
   "codex",
   "gemini",
+  "omp",
   "copilot",
   "cursor",
   "opencode",
@@ -35,6 +37,7 @@ const NAME_LABELS: Record<(typeof AGENT_NAMES)[number], string> = {
   claude: "Claude Code",
   codex: "Codex",
   gemini: "Gemini",
+  omp: "OMP",
   copilot: "Copilot",
   cursor: "Cursor",
   opencode: "OpenCode",
@@ -95,6 +98,9 @@ export function detectAgentStatusFromTitle(
   if (title.startsWith(`${CLAUDE_IDLE} `) || title === CLAUDE_IDLE) {
     return "idle";
   }
+  if (title.startsWith("π !")) return "permission";
+  if (title.startsWith("π >")) return "idle";
+  if (title.startsWith("π :")) return "working";
   // Any agent's spinner frame, named or not: activity without identity.
   if (containsBrailleSpinner(title)) return "working";
 
@@ -113,6 +119,7 @@ export function detectAgentStatusFromTitle(
  * proves activity but not identity (a bare spinner frame or task text). */
 export function agentLabelFromTitle(title: string): string | null {
   if (!title) return null;
+  if (OMP_TITLE_RE.test(title)) return "OMP";
   if (
     title.startsWith(`${CLAUDE_IDLE} `) ||
     title === CLAUDE_IDLE ||

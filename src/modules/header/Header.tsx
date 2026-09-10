@@ -8,6 +8,7 @@ import {
   CommandIcon,
   Settings01Icon,
   SidebarLeftIcon,
+  SidebarRightIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -42,6 +43,9 @@ type Props = {
   onReorder: (fromId: number, toGapIndex: number) => void;
   onOverrideLanguage?: (id: number, lang: string | null) => void;
   onToggleSidebar: () => void;
+  onToggleProjects: () => void;
+  projectsCollapsed: boolean;
+  sidebarCollapsed: boolean;
   onOpenCommandPalette: () => void;
   onActivateAgent: (tabId: number, leafId: number) => void;
   onOpenSettings: () => void;
@@ -69,6 +73,9 @@ export function Header({
   onReorder,
   onOverrideLanguage,
   onToggleSidebar,
+  onToggleProjects,
+  projectsCollapsed,
+  sidebarCollapsed,
   onOpenCommandPalette,
   onActivateAgent,
   onOpenSettings,
@@ -113,8 +120,11 @@ export function Header({
     >
       <div className="flex shrink-0 items-center gap-0.5">
         <Button
-          onClick={onToggleSidebar}
-          title="Toggle sidebar"
+          onClick={onToggleProjects}
+          title="Toggle Projects sidebar"
+          aria-label="Toggle Projects sidebar"
+          aria-expanded={!projectsCollapsed}
+          aria-controls="projects"
           variant="ghost"
           size="icon-sm"
           className="shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -175,6 +185,19 @@ export function Header({
       )}
 
       {!IS_MAC && settingsButton}
+
+      <Button
+        onClick={onToggleSidebar}
+        title="Toggle Files / Source Control sidebar"
+        aria-label="Toggle Files / Source Control sidebar"
+        aria-expanded={!sidebarCollapsed}
+        aria-controls="sidebar"
+        variant="ghost"
+        size="icon-sm"
+        className="shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+      >
+        <HugeiconsIcon icon={SidebarRightIcon} size={18} strokeWidth={1.75} />
+      </Button>
 
       {USE_CUSTOM_WINDOW_CONTROLS && (
         <>

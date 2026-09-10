@@ -5,7 +5,7 @@ const ST_FINAL: u8 = b'\\';
 
 const OSC_MAX: usize = 2048;
 
-const DEFAULT_AGENTS: &[&str] = &["claude", "codex", "gemini", "pi"];
+const DEFAULT_AGENTS: &[&str] = &["claude", "codex", "gemini", "pi", "omp"];
 
 // OSC 777 marker our agent hooks emit. Legacy 3-field `notify;Pide;<event>`
 // (Claude) or 4-field `notify;Pide;<agent>;<event>` (Codex/Gemini/Pi).
@@ -21,6 +21,7 @@ enum State {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Status {
+    Idle,
     Working,
     Waiting,
 }
@@ -76,7 +77,7 @@ impl AgentDetector {
             state: State::Ground,
             osc: Vec::new(),
             armed: false,
-            status: Status::Working,
+            status: Status::Idle,
         }
     }
 
@@ -214,7 +215,7 @@ impl AgentDetector {
                 let cmd = pt.strip_prefix(b"C;").unwrap_or(b"");
                 if let Some(agent) = self.match_agent(cmd) {
                     self.armed = true;
-                    self.status = Status::Working;
+                    self.status = Status::Idle;
                     emit(Transition::Started { agent });
                 }
             }
@@ -229,7 +230,7 @@ impl AgentDetector {
     fn ensure_armed<F: FnMut(Transition)>(&mut self, agent: &str, emit: &mut F) {
         if !self.armed {
             self.armed = true;
-            self.status = Status::Working;
+            self.status = Status::Idle;
             emit(Transition::Started { agent: agent.to_string() });
         }
     }
@@ -285,6 +286,15 @@ mod tests {
 
     fn started(agent: &str) -> Transition {
         Transition::Started { agent: agent.into() }
+    }
+
+    #[test]
+    fn launch_does_not_suppress_first_working_hook() {
+        let mut d = AgentDetector::new();
+        assert_eq!(run(&mut d, &osc("133;C;claude")), vec![started("claude")]);
+        assert!(d.status == Status::Idle);
+        assert_eq!(run(&mut d, &osc("777;notify;Pide;working")), vec![Transition::Working]);
+        assert!(run(&mut d, &osc("777;notify;Pide;working")).is_empty());
     }
 
     #[test]
@@ -347,9 +357,9 @@ mod tests {
 
     #[test]
     fn four_field_marker_self_arms_named_agent() {
-        // Fresh arm already implies Working, so `working` emits only Started.
+        // A working hook must emit activity even when it also discovers the agent.
         let mut d = AgentDetector::new();
-        assert_eq!(run(&mut d, &osc("777;notify;Pide;codex;working")), vec![started("codex")]);
+        assert_eq!(run(&mut d, &osc("777;notify;Pide;codex;working")), vec![started("codex"), Transition::Working]);
         let mut g = AgentDetector::new();
         assert_eq!(
             run(&mut g, &osc("777;notify;Pide;gemini;finished")),
@@ -439,12 +449,17 @@ mod tests {
     }
 
     #[test]
-    fn arms_on_pi_command() {
+    fn arms_on_pi_and_omp_commands() {
         let mut d = AgentDetector::new();
         assert_eq!(run(&mut d, &osc("133;C;pi")), vec![started("pi")]);
-        // "pip install" must not arm: rest of token is not empty or dash.
+
+        let mut omp = AgentDetector::new();
+        assert_eq!(run(&mut omp, &osc("133;C;omp")), vec![started("omp")]);
+
+        // Prefixes must not arm: the rest of the token is not empty or a dash.
         let mut d2 = AgentDetector::new();
         assert!(run(&mut d2, &osc("133;C;pip install requests")).is_empty());
+        assert!(run(&mut d2, &osc("133;C;ompress")).is_empty());
     }
 
     #[test]
@@ -452,7 +467,7 @@ mod tests {
         let mut d = AgentDetector::new();
         assert_eq!(
             run(&mut d, &osc("777;notify;Pide;pi;working")),
-            vec![started("pi")]
+            vec![started("pi"), Transition::Working]
         );
         assert_eq!(
             run(&mut d, &osc("777;notify;Pide;pi;finished")),
