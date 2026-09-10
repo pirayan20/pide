@@ -59,6 +59,7 @@ mod imp {
         }
         #[cfg(not(target_os = "macos"))]
         {
+            let _ = display_allowed;
             (
                 "systemd-inhibit",
                 vec![
