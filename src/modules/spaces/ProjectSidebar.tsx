@@ -162,20 +162,6 @@ export function SpaceProjectTree({
                 event.dataTransfer.setData("text/plain", space.id);
               }}
             >
-              <button
-                type="button"
-                className="rounded p-1 text-muted-foreground hover:bg-foreground/[0.05]"
-                aria-label={`${open ? "Collapse" : "Expand"} Space ${space.name}`}
-                aria-expanded={open}
-                onClick={() => actions.toggleSpace(space.id)}
-              >
-                <HugeiconsIcon
-                  icon={ArrowRight01Icon}
-                  className={cn("pide-space-chevron", open && "rotate-90")}
-                  size={13}
-                  strokeWidth={1.75}
-                />
-              </button>
               <SpaceAvatar
                 space={space}
                 size="sm"
@@ -231,6 +217,20 @@ export function SpaceProjectTree({
                   onClick={() => actions.deleteSpace(space.id)}
                 />
               </span>
+              <button
+                type="button"
+                className="shrink-0 rounded p-1 text-muted-foreground hover:bg-foreground/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label={`${open ? "Collapse" : "Expand"} Space ${space.name}`}
+                aria-expanded={open}
+                onClick={() => actions.toggleSpace(space.id)}
+              >
+                <HugeiconsIcon
+                  icon={ArrowRight01Icon}
+                  className={cn("pide-space-chevron", open && "rotate-90")}
+                  size={13}
+                  strokeWidth={1.75}
+                />
+              </button>
             </div>
 
             <CollapsibleContent
