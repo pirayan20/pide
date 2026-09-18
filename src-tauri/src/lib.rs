@@ -1,6 +1,6 @@
 pub mod modules;
 
-use modules::{agent, fs, git, history, lsp, power, pty, shell, usage, workspace};
+use modules::{agent, appearance, fs, git, history, lsp, power, pty, shell, usage, workspace};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
@@ -119,7 +119,8 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
     #[cfg(target_os = "macos")]
     let builder = builder
         .title_bar_style(tauri::TitleBarStyle::Overlay)
-        .hidden_title(true);
+        .hidden_title(true)
+        .transparent(true);
 
     // On Linux/Windows we render our own titlebar, so drop native chrome
     // and make the window transparent.
@@ -311,6 +312,7 @@ pub fn run() {
             get_launch_dir,
             get_launch_files,
             open_settings_window,
+            appearance::set_window_blur,
             agent::agent_enable_hooks,
             agent::agent_hooks_status,
             power::set_keep_awake,

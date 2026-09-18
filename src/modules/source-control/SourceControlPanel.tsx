@@ -1547,7 +1547,7 @@ export const SourceControlPanel = memo(function SourceControlPanel({
 
   return (
     <TooltipProvider delayDuration={800} skipDelayDuration={300}>
-      <aside className="flex h-full min-w-0 flex-col bg-card/80 backdrop-blur [contain:layout_style]">
+      <aside className="pide-chrome-surface flex h-full min-w-0 flex-col bg-card/80 backdrop-blur [contain:layout_style]">
         <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border/50 px-3 pb-2.5 pt-3">
           <div className="flex min-w-0 items-center gap-1.5">
             <BranchDropdown
@@ -1936,7 +1936,7 @@ function StatusBar({
   }, [lastOperation]);
 
   return (
-    <div className="flex shrink-0 items-center gap-3 overflow-x-auto border-t border-border/40 bg-card/60 px-3 py-1.5 text-[10.5px] text-muted-foreground">
+    <div className="pide-chrome-surface flex shrink-0 items-center gap-3 overflow-x-auto border-t border-border/40 bg-card/60 px-3 py-1.5 text-[10.5px] text-muted-foreground">
       <span className="inline-flex shrink-0 items-center gap-1">
         <HugeiconsIcon icon={GitBranchIcon} size={10} strokeWidth={1.9} />
         <span className="font-medium text-foreground/85">

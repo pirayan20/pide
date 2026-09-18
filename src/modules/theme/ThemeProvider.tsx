@@ -1,3 +1,4 @@
+import { useWindowAppearance } from "@/modules/theme/useWindowAppearance";
 import {
   createContext,
   useCallback,
@@ -71,6 +72,7 @@ function resolveTheme(id: string, custom: Theme[]): Theme {
 }
 
 export function ThemeProvider({ children, defaultMode = "system" }: ThemeProviderProps) {
+  useWindowAppearance();
   const [mode, setModeState] = useState<ThemePref>(() => readFastMode(defaultMode));
   const [themeId, setThemeIdState] = useState<string>(() => readFastThemeId());
   const [previewId, setPreviewId] = useState<string | null>(null);

@@ -469,7 +469,7 @@ export function GitHistoryPane({
 
   return (
     <TooltipProvider delayDuration={500} skipDelayDuration={200}>
-      <div className="flex h-full min-h-0 flex-col bg-background [contain:layout_style]">
+      <div className="flex h-full min-h-0 flex-col pide-content-surface bg-background [contain:layout_style]">
         {view.kind === "inspect" ? (
           <GitHistoryInspector
             repoRoot={repoRoot}

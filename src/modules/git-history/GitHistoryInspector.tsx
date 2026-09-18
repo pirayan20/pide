@@ -166,7 +166,7 @@ export function GitHistoryInspector({
   if (!commit) return null;
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div className="flex h-full min-h-0 flex-col pide-content-surface bg-background">
       <header className="flex h-10 shrink-0 items-center border-b border-border/50 px-2">
         <Button
           size="xs"

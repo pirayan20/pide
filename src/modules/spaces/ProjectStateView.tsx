@@ -57,7 +57,7 @@ export function ProjectStateView({
   }
 
   return (
-    <div className="flex h-full items-center justify-center bg-background/95 p-8">
+    <div className="flex h-full items-center justify-center pide-content-surface bg-background/95 p-8">
       <div className="flex max-w-lg flex-col items-center gap-4 text-center">
         <span className="flex size-12 items-center justify-center rounded-xl bg-accent text-muted-foreground">
           <HugeiconsIcon icon={Folder01Icon} size={24} strokeWidth={1.5} />

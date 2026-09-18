@@ -1,10 +1,12 @@
 import { readTerminalTokens } from "@/styles/tokens";
 import type { ITheme } from "@xterm/xterm";
 
-export function buildTerminalTheme(): ITheme {
+export function buildTerminalTheme(
+  transparent = document.documentElement.dataset.windowTransparent === "true",
+): ITheme {
   const t = readTerminalTokens();
   return {
-    background: t.background,
+    background: transparent ? "#00000000" : t.background,
     foreground: t.foreground,
     cursor: t.cursor,
     cursorAccent: t.cursorAccent,
