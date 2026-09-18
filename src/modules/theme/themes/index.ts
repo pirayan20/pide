@@ -1,3 +1,4 @@
+import { githubDarkClassic } from "@/modules/theme/themes/github-dark-classic";
 import { DEFAULT_THEME_ID, type Theme } from "../types";
 import { caffeine } from "./caffeine";
 import { catppuccin } from "./catppuccin";
@@ -17,6 +18,7 @@ import { tokyoNight } from "./tokyo-night";
 
 const BUILTIN: Theme[] = [
   pideDefault,
+  githubDarkClassic,
   claude,
   kanagawa,
   kanagawaDragon,

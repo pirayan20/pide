@@ -1,3 +1,4 @@
+import { clampWindowOpacity } from "@/modules/theme/windowAppearance";
 import type { KeyBinding, ShortcutId } from "@/modules/shortcuts/shortcuts";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { LazyStore } from "@tauri-apps/plugin-store";
@@ -102,6 +103,8 @@ export type Preferences = {
   backgroundImageId: string | null;
   backgroundOpacity: number;
   backgroundBlur: number;
+  windowOpacity: number;
+  windowBlur: boolean;
   editorTheme: EditorThemePref;
   editorFontSize: number;
   autostart: boolean;
@@ -169,6 +172,8 @@ const KEY_BG_KIND = "backgroundKind";
 const KEY_BG_IMAGE_ID = "backgroundImageId";
 const KEY_BG_OPACITY = "backgroundOpacity";
 const KEY_BG_BLUR = "backgroundBlur";
+const KEY_WINDOW_OPACITY = "windowOpacity";
+const KEY_WINDOW_BLUR = "windowBlur";
 const KEY_EDITOR_THEME = "editorTheme";
 const KEY_EDITOR_FONT_SIZE = "editorFontSize";
 const KEY_AUTOSTART = "autostart";
@@ -231,6 +236,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   backgroundImageId: null,
   backgroundOpacity: 0.5,
   backgroundBlur: 0,
+  windowOpacity: 1,
+  windowBlur: false,
   editorTheme: EDITOR_THEME_AUTO,
   editorFontSize: EDITOR_FONT_SIZE_DEFAULT,
   autostart: false,
@@ -298,6 +305,8 @@ export async function loadPreferences(): Promise<Preferences> {
     backgroundBlur: clampBlur(
       get<number>(KEY_BG_BLUR) ?? DEFAULT_PREFERENCES.backgroundBlur,
     ),
+    windowOpacity: clampWindowOpacity(get(KEY_WINDOW_OPACITY)),
+    windowBlur: get(KEY_WINDOW_BLUR) === true,
     editorTheme: ((): EditorThemePref => {
       const stored = get<string>(KEY_EDITOR_THEME);
       if (stored === EDITOR_THEME_AUTO || isEditorThemeId(stored))
@@ -443,6 +452,14 @@ function clampBgOpacity(v: number): number {
 function clampBlur(v: number): number {
   if (!Number.isFinite(v)) return 16;
   return Math.min(64, Math.max(0, Math.round(v)));
+}
+
+export async function setWindowOpacity(value: number): Promise<void> {
+  await writePref(KEY_WINDOW_OPACITY, clampWindowOpacity(value));
+}
+
+export async function setWindowBlur(value: boolean): Promise<void> {
+  await writePref(KEY_WINDOW_BLUR, value === true);
 }
 
 export async function setBackgroundKind(value: BackgroundKind): Promise<void> {
@@ -643,6 +660,8 @@ export async function onPreferencesChange(
     [KEY_BG_IMAGE_ID]: "backgroundImageId",
     [KEY_BG_OPACITY]: "backgroundOpacity",
     [KEY_BG_BLUR]: "backgroundBlur",
+    [KEY_WINDOW_OPACITY]: "windowOpacity",
+    [KEY_WINDOW_BLUR]: "windowBlur",
     [KEY_EDITOR_THEME]: "editorTheme",
     [KEY_EDITOR_FONT_SIZE]: "editorFontSize",
     [KEY_AUTOSTART]: "autostart",

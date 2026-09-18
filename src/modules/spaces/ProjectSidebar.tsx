@@ -553,7 +553,7 @@ export function ProjectSidebar({
     <aside
       aria-label="Projects"
       className={cn(
-        "pide-sidebar-content h-full min-h-0 flex-col border-r border-border/60 bg-card text-foreground",
+        "pide-chrome-surface pide-sidebar-content h-full min-h-0 flex-col border-r border-border/60 bg-card text-foreground",
         open ? "flex" : "hidden",
       )}
     >

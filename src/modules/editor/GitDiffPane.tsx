@@ -284,7 +284,7 @@ export function GitDiffPane({ source, chipLabel, active }: GitDiffPaneProps) {
   );
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-md border border-border/60 bg-background">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-md border border-border/60 pide-content-surface bg-background">
       <div className="flex h-10 min-w-0 shrink-0 items-center justify-between gap-3 overflow-hidden border-b border-border/60 px-3">
         <div className="flex min-w-0 items-center gap-2">
           <Badge

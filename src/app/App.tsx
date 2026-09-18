@@ -1349,7 +1349,7 @@ export default function App() {
       }}
     >
       <div
-        className={`pide-sidebar-content pide-sidebar-right h-full min-h-0 flex-col border-l border-border/60 bg-card ${sidebarCollapsed ? "hidden" : "flex"}`}
+        className={`pide-chrome-surface pide-sidebar-content pide-sidebar-right h-full min-h-0 flex-col border-l border-border/60 bg-card ${sidebarCollapsed ? "hidden" : "flex"}`}
       >
         <div key={sidebarView} className="min-h-0 flex-1 pide-panel-in">
           {sidebarView === "explorer" ? (
@@ -1387,7 +1387,7 @@ export default function App() {
   const shell = (
     <ThemeProvider>
       <TooltipProvider>
-        <div className="relative flex h-screen flex-col overflow-hidden bg-background text-foreground">
+        <div className="pide-window-surface relative flex h-screen flex-col overflow-hidden text-foreground">
           {!zenMode && (
             <Header
               tabs={projectTabs}

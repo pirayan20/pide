@@ -130,7 +130,8 @@
     @apply border-border outline-ring/50;
     }
   body {
-    @apply bg-background text-foreground;
+    @apply text-foreground;
+    background: transparent;
     margin: 0;
     overflow: hidden;
     }
@@ -194,7 +195,7 @@ html[data-chrome="borderless"] #settings-root {
   border-radius: 12px;
   overflow: hidden;
   border: 1px solid var(--border);
-  background: var(--background);
+  background: transparent;
 }
 
 /*
@@ -448,4 +449,22 @@ html *::-webkit-scrollbar {
 
 .pide-project-actions {
   transition: opacity var(--dur-fast) var(--ease-soft);
+}
+
+.pide-window-surface {
+  background-color: var(--background);
+  background-color: color-mix(in srgb, var(--background) var(--window-opacity, 100%), transparent);
+}
+
+/* Paint the window tint once so nested panels do not compound its opacity. */
+html[data-window-transparent="true"] .pide-content-surface,
+html[data-window-transparent="true"] .pide-chrome-surface {
+  background-color: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+html[data-window-transparent="true"] .xterm,
+html[data-window-transparent="true"] .xterm-viewport {
+  background-color: transparent !important;
 }

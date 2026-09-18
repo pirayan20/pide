@@ -83,7 +83,10 @@ Pide tracks Terax for upstream fixes. Everything here is Apache-2.0, same as the
 
 - Custom themes built in-app, switch between bundled presets and your own
 - Create your own themes, share them or import from the community
-- Background images with adjustable opacity and blur
+- Window transparency without an image, with native blur on macOS and Windows
+- Settings > Themes > Match Zed applies GitHub Dark Classic, 82% opacity, and blur
+- Background images with independent opacity and blur controls
+- On Linux, window transparency is supported; desktop blur follows compositor settings
 - Editor theme is independent from the app theme
 
 ### Coding-agent CLI integration

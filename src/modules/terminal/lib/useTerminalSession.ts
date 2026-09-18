@@ -972,6 +972,11 @@ export function useTerminalSession({
     applyCursorBlink(cursorBlink);
   }, [cursorBlink]);
 
+  const windowTransparent = usePreferencesStore((p) => p.windowOpacity < 1);
+  useEffect(() => {
+    applyPoolTheme(windowTransparent);
+  }, [windowTransparent]);
+
   const bgActive = usePreferencesStore(
     (p) => p.backgroundKind === "image" && !!p.backgroundImageId,
   );

@@ -188,6 +188,8 @@ function termOptions() {
     // scrollbar that globals.css hides entirely; 1px reclaims the dead gutter.
     overviewRuler: { width: 1 },
     allowProposedApi: true,
+    // xterm requires this before open() to change opacity without recreating sessions.
+    allowTransparency: true,
     minimumContrastRatio: bgActive(prefs) ? MCR_BG_ACTIVE : MCR_BG_INACTIVE,
   };
 }
@@ -962,8 +964,8 @@ export function applyScrollback(value: number): void {
   }
 }
 
-export function applyTheme(): void {
-  const theme = buildTerminalTheme();
+export function applyTheme(transparent?: boolean): void {
+  const theme = buildTerminalTheme(transparent);
   for (const slot of slots) {
     slot.term.options.theme = theme;
   }

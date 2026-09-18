@@ -1,3 +1,4 @@
+import { WindowAppearanceGroup } from "@/settings/components/WindowAppearanceGroup";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -138,8 +139,10 @@ export function ThemesSection() {
     <div className="flex flex-col gap-6">
       <SectionHeader
         title="Themes"
-        description="Theme, background image, and customization."
+        description="Theme, window transparency, blur, and background image."
       />
+
+      <WindowAppearanceGroup />
 
       <div
         role="presentation"
@@ -330,7 +333,7 @@ export function ThemesSection() {
         }}
       >
         <div className="flex items-center justify-between">
-          <Label>Background</Label>
+          <Label>Background image</Label>
           <div className="flex items-center gap-2">
             {backgroundKind === "image" && backgroundImageId ? (
               <Button
@@ -371,7 +374,7 @@ export function ThemesSection() {
           <div className="flex flex-col gap-3 rounded-lg border border-border/60 p-3">
             <div className="flex items-center justify-between gap-3">
               <span className="text-[11.5px] text-muted-foreground">
-                Opacity
+                Image opacity
               </span>
               <span className="tabular-nums text-[11px] text-muted-foreground">
                 {Math.round(backgroundOpacity * 100)}%
@@ -385,7 +388,7 @@ export function ThemesSection() {
               onValueChange={(v) => void setBackgroundOpacity(v[0] ?? 0)}
             />
             <div className="flex items-center justify-between gap-3 pt-1">
-              <span className="text-[11.5px] text-muted-foreground">Blur</span>
+              <span className="text-[11.5px] text-muted-foreground">Image blur</span>
               <span className="tabular-nums text-[11px] text-muted-foreground">
                 {backgroundBlur}px
               </span>

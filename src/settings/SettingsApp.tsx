@@ -105,10 +105,10 @@ export function SettingsApp() {
   }, []);
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground select-none">
+    <div className="pide-window-surface flex h-screen flex-col overflow-hidden text-foreground select-none">
       <header
         data-tauri-drag-region
-        className={`flex h-11 shrink-0 items-center border-b border-border/60 bg-card/60 ${
+        className={`pide-chrome-surface flex h-11 shrink-0 items-center border-b border-border/60 bg-card/60 ${
           IS_MAC ? "pr-3 pl-22" : "pr-0 pl-3"
         }`}
       >
