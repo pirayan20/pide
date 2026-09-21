@@ -1,8 +1,9 @@
 import {
   projectOrderAfterDrop,
+  orderAfterDrop,
   type DropSide,
 } from "@/modules/spaces/lib/projectOrder";
-import { useProjectDrag } from "@/modules/spaces/lib/useProjectDrag";
+import { useSidebarDrag } from "@/modules/spaces/lib/useSidebarDrag";
 import { sumProjectActivity } from "@/modules/spaces/lib/projectActivity";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { useProjectActivity } from "@/modules/spaces/lib/useProjectActivity";
@@ -52,7 +53,7 @@ type TreeActions = {
   removeProject(projectId: string): void;
   deleteSpace(spaceId: string): void;
   dragSpace(id: string): void;
-  dropSpace(id: string): void;
+  dropSpace(id: string, side: DropSide): void;
   dragProject(id: string): void;
   dropProject(spaceId: string, id: string, side: DropSide): void;
 };
@@ -108,7 +109,16 @@ export function SpaceProjectTree({
   actions,
   projectActivity = {},
 }: TreeProps) {
-  const projectDrag = useProjectDrag(actions.dropProject, actions.dragProject);
+  const projectDrag = useSidebarDrag(
+    "project",
+    actions.dropProject,
+    actions.dragProject,
+  );
+  const spaceDrag = useSidebarDrag(
+    "space",
+    (_scope, id, side) => actions.dropSpace(id, side),
+    actions.dragSpace,
+  );
   const [editing, setEditing] = useState<{
     kind: "space" | "project";
     id: string;
@@ -118,10 +128,14 @@ export function SpaceProjectTree({
     <div
       className="space-y-1"
       onClickCapture={(event) => {
-        if (projectDrag.suppressClick.current) {
+        if (
+          projectDrag.suppressClick.current ||
+          spaceDrag.suppressClick.current
+        ) {
           event.preventDefault();
           event.stopPropagation();
           projectDrag.suppressClick.current = false;
+          spaceDrag.suppressClick.current = false;
         }
       }}
     >
@@ -136,30 +150,37 @@ export function SpaceProjectTree({
             key={space.id}
             role="group"
             aria-label={space.name}
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={() => actions.dropSpace(space.id)}
+            data-space-drag-id={space.id}
             className={cn(
-              "pide-project-row group/space rounded-lg border border-transparent",
+              "pide-project-row group/space relative rounded-lg border border-transparent",
+              spaceDrag.draggingId === space.id && "opacity-40 cursor-grabbing",
               space.id === activeSpaceId && "text-foreground",
             )}
           >
+            {spaceDrag.target?.id === space.id && (
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "pointer-events-none absolute inset-x-0 z-10 h-0.5 rounded bg-muted-foreground",
+                  spaceDrag.target.side === "before" ? "-top-px" : "-bottom-px",
+                )}
+              />
+            )}
             <div
               role="toolbar"
               aria-label={`${space.name} Space controls`}
-              className="relative flex h-9 items-center gap-1 px-1.5"
-              draggable
-              onDragStart={(event) => {
-                if (
-                  event.target instanceof Element &&
-                  event.target.closest("input, [data-project-action]")
-                ) {
-                  event.preventDefault();
-                  return;
-                }
-                event.stopPropagation();
-                actions.dragSpace(space.id);
-                event.dataTransfer.effectAllowed = "move";
-                event.dataTransfer.setData("text/plain", space.id);
+              className="relative flex h-9 select-none touch-none items-center gap-1 px-1.5"
+              draggable={false}
+              onDragStart={(event) => event.preventDefault()}
+              onPointerDown={(event) =>
+                spaceDrag.start(event, space.id, "spaces")
+              }
+              onPointerMove={spaceDrag.move}
+              onPointerUp={spaceDrag.end}
+              onPointerCancel={spaceDrag.cancel}
+              onLostPointerCapture={spaceDrag.cancel}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") spaceDrag.cancel();
               }}
             >
               <SpaceAvatar
@@ -221,6 +242,7 @@ export function SpaceProjectTree({
                 type="button"
                 className="shrink-0 rounded p-1 text-muted-foreground hover:bg-foreground/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={`${open ? "Collapse" : "Expand"} Space ${space.name}`}
+                data-project-action
                 aria-expanded={open}
                 onClick={() => actions.toggleSpace(space.id)}
               >
@@ -396,19 +418,6 @@ export function SpaceProjectTree({
   );
 }
 
-function moveBefore(
-  ids: string[],
-  movedId: string,
-  targetId: string,
-): string[] {
-  if (movedId === targetId) return ids;
-  const next = ids.filter((id) => id !== movedId);
-  const index = next.indexOf(targetId);
-  if (index < 0) return ids;
-  next.splice(index, 0, movedId);
-  return next;
-}
-
 export function ProjectSidebar({
   open,
   tabs,
@@ -523,16 +532,17 @@ export function ProjectSidebar({
       draggedSpace.current = id;
       draggedProject.current = null;
     },
-    dropSpace: (id) => {
-      if (draggedSpace.current) {
-        onReorderSpaces(
-          moveBefore(
+    dropSpace: (id, side) => {
+      const moved = draggedSpace.current;
+      const order = moved
+        ? orderAfterDrop(
             spaces.map((space) => space.id),
-            draggedSpace.current,
+            moved,
             id,
-          ),
-        );
-      }
+            side,
+          )
+        : null;
+      if (order) onReorderSpaces(order);
       draggedSpace.current = null;
     },
     dragProject: (id) => {

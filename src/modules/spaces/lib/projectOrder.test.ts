@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { projectOrderAfterDrop } from "@/modules/spaces/lib/projectOrder";
+import {
+  orderAfterDrop,
+  projectOrderAfterDrop,
+} from "@/modules/spaces/lib/projectOrder";
 
 const projects = [
   { id: "a", spaceId: "one" },
@@ -42,5 +45,44 @@ describe("project drop order", () => {
     expect(
       projectOrderAfterDrop(projects, "one", "a", "b", "before"),
     ).toBeNull();
+  });
+});
+
+describe("Space drop order", () => {
+  const ids = ["personal", "work", "archive"];
+
+  it("moves Spaces before and after targets, including the last position", () => {
+    expect(orderAfterDrop(ids, "personal", "archive", "after")).toEqual([
+      "work",
+      "archive",
+      "personal",
+    ]);
+    expect(orderAfterDrop(ids, "archive", "personal", "before")).toEqual([
+      "archive",
+      "personal",
+      "work",
+    ]);
+    expect(orderAfterDrop(ids, "archive", "personal", "after")).toEqual([
+      "personal",
+      "archive",
+      "work",
+    ]);
+    expect(ids).toEqual(["personal", "work", "archive"]);
+  });
+
+  it("preserves hidden Spaces when dropping between search results", () => {
+    expect(orderAfterDrop(ids, "archive", "personal", "before")).toEqual([
+      "archive",
+      "personal",
+      "work",
+    ]);
+  });
+
+  it("ignores missing, self, and unchanged targets", () => {
+    expect(orderAfterDrop(ids, "deleted", "work", "before")).toBeNull();
+    expect(orderAfterDrop(ids, "work", "deleted", "before")).toBeNull();
+    expect(orderAfterDrop(ids, "work", "work", "after")).toBeNull();
+    expect(orderAfterDrop(ids, "personal", "work", "before")).toBeNull();
+    expect(orderAfterDrop([], "personal", "work", "after")).toBeNull();
   });
 });
