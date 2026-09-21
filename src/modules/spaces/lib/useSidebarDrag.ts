@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type PointerEvent } from "react";
 import type { DropSide } from "@/modules/spaces/lib/projectOrder";
 
 type Target = { id: string; side: DropSide };
-export function useProjectDrag(
+export function useSidebarDrag(
+  kind: "project" | "space",
   onDrop: (spaceId: string, id: string, side: DropSide) => void,
   onStart: (id: string) => void,
 ) {
@@ -76,12 +77,16 @@ export function useProjectDrag(
       event.preventDefault();
       const row = document
         .elementFromPoint(event.clientX, event.clientY)
-        ?.closest<HTMLElement>("[data-project-id]");
-      const targetId = row?.dataset.projectId;
+        ?.closest<HTMLElement>(
+          kind === "project" ? "[data-project-id]" : "[data-space-drag-id]",
+        );
+      const targetId =
+        kind === "project" ? row?.dataset.projectId : row?.dataset.spaceDragId;
       const next: Target | null =
         targetId &&
-        row?.dataset.spaceId === current.spaceId &&
-        row.dataset.projectId !== current.id
+        row &&
+        (kind === "space" || row.dataset.spaceId === current.spaceId) &&
+        targetId !== current.id
           ? {
               id: targetId,
               side:

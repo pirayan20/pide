@@ -1,3 +1,4 @@
+import { saveSpacesList } from "@/modules/spaces/lib/store";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useSpaces } from "./useSpaces";
 
@@ -53,9 +54,7 @@ describe("Project hierarchy actions", () => {
     });
 
     expect(
-      useSpaces
-        .getState()
-        .setEnv("s1", { kind: "wsl", distro: "Ubuntu" }),
+      useSpaces.getState().setEnv("s1", { kind: "wsl", distro: "Ubuntu" }),
     ).toBe(false);
     expect(useSpaces.getState().spaces[0].env).toEqual({ kind: "local" });
   });
@@ -91,4 +90,22 @@ describe("Project hierarchy actions", () => {
     expect(useSpaces.getState().removeSpaceMetadata("s1")).toBeNull();
     expect(useSpaces.getState().activeSpaceId).toBeNull();
   });
+});
+
+it("persists reordered Spaces without changing selection or Project ownership", () => {
+  for (const id of ["s1", "s2", "s3"]) {
+    useSpaces.getState().createSpace({ id, name: id, env: { kind: "local" } });
+    useSpaces
+      .getState()
+      .createProject({ id: `p-${id}`, spaceId: id, name: id, root: `/${id}` });
+  }
+  useSpaces.getState().setActiveSpace("s2");
+  const before = useSpaces.getState();
+  useSpaces.getState().reorderSpaces(["s3", "s1", "s2"]);
+  const after = useSpaces.getState();
+  expect(after.spaces.map((space) => space.id)).toEqual(["s3", "s1", "s2"]);
+  expect(after.activeSpaceId).toBe("s2");
+  expect(after.projects).toBe(before.projects);
+  expect(after.activeProjectBySpace).toBe(before.activeProjectBySpace);
+  expect(saveSpacesList).toHaveBeenLastCalledWith(after.spaces);
 });

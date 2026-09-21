@@ -60,7 +60,8 @@ it("renders projects and agent status while suppressing unavailable-project acti
   )?.[0];
   expect(spaceContainer).toBeDefined();
   expect(spaceContainer).not.toContain('draggable="true"');
-  expect(html.match(/draggable="true"/g)).toHaveLength(1);
+  expect(html).not.toContain('draggable="true"');
+  expect(spaceContainer).toContain('data-space-drag-id="s1"');
   expect(html).toContain('draggable="false"');
   expect(html).toContain("Coding agents: 1 working");
   expect(html).not.toContain("Coding agents: 1 waiting");

@@ -10,6 +10,15 @@ export function projectOrderAfterDrop(
   const ids = projects
     .filter((project) => project.spaceId === spaceId)
     .map((project) => project.id);
+  return orderAfterDrop(ids, movedId, targetId, side);
+}
+
+export function orderAfterDrop(
+  ids: readonly string[],
+  movedId: string,
+  targetId: string,
+  side: DropSide,
+): string[] | null {
   if (movedId === targetId || !ids.includes(movedId) || !ids.includes(targetId))
     return null;
   const next = ids.filter((id) => id !== movedId);
